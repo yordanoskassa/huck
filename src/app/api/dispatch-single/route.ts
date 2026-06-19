@@ -87,6 +87,7 @@ export async function POST(request: Request) {
             driver_id: driver.id,
             strategy: decision.strategy,
             posted_rate: String(load.posted_rate),
+            minimum_rate: String(load.posted_rate),
             target_rate: String(decision.targetRate),
             origin: `${load.origin_city}, ${load.origin_state}`,
             destination: `${load.dest_city}, ${load.dest_state}`,

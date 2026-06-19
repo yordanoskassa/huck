@@ -25,13 +25,13 @@ function DATLogo() {
   return (
     <div className="flex items-center gap-1.5">
       <svg width={90} height={28} viewBox="0 0 90 28">
-        <rect x={0} y={0} width={28} height={28} rx={3} fill={DAT_BLUE} />
+        <rect x={0} y={0} width={28} height={28} rx={1} fill={DAT_BLUE} />
         <text x={14} y={14} textAnchor="middle" dominantBaseline="central"
           fill="white" fontWeight="800" fontSize={15} fontFamily="system-ui, -apple-system, sans-serif">D</text>
-        <rect x={31} y={0} width={28} height={28} rx={3} fill={DAT_BLUE} />
+        <rect x={31} y={0} width={28} height={28} rx={1} fill={DAT_BLUE} />
         <text x={45} y={14} textAnchor="middle" dominantBaseline="central"
           fill="white" fontWeight="800" fontSize={15} fontFamily="system-ui, -apple-system, sans-serif">A</text>
-        <rect x={62} y={0} width={28} height={28} rx={3} fill={DAT_BLUE} />
+        <rect x={62} y={0} width={28} height={28} rx={1} fill={DAT_BLUE} />
         <text x={76} y={14} textAnchor="middle" dominantBaseline="central"
           fill="white" fontWeight="800" fontSize={15} fontFamily="system-ui, -apple-system, sans-serif">T</text>
       </svg>

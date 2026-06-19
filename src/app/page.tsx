@@ -210,9 +210,9 @@ export default function HuckPage() {
           <div className="grid grid-cols-4 gap-3 mb-4">
             {[
               { label: 'Total Listings', value: availableLoads.length, color: 'text-white' },
-              { label: 'Below Market', value: availableLoads.filter((l) => opportunityScore(l) > 0).length, color: 'text-emerald-400' },
-              { label: 'At Market', value: availableLoads.filter((l) => opportunityScore(l) === 0).length, color: 'text-[#888]' },
-              { label: 'Above Market', value: availableLoads.filter((l) => opportunityScore(l) < 0).length, color: 'text-red-400' },
+              { label: 'Below Spot', value: availableLoads.filter((l) => opportunityScore(l) > 0).length, color: 'text-emerald-400' },
+              { label: 'At Spot', value: availableLoads.filter((l) => opportunityScore(l) === 0).length, color: 'text-[#888]' },
+              { label: 'Above Spot', value: availableLoads.filter((l) => opportunityScore(l) < 0).length, color: 'text-red-400' },
             ].map((stat) => (
               <div key={stat.label} className="bg-[#111] rounded-xl border border-[#1a1a1a] px-4 py-3">
                 <p className="text-[10px] uppercase tracking-wider text-[#555] font-bold">{stat.label}</p>
@@ -302,7 +302,7 @@ export default function HuckPage() {
                             {spotAvg && (
                               <>
                                 <span className="text-[#333]">&middot;</span>
-                                <span className="text-[11px] text-[#555]">Spot: ${spotAvg.toLocaleString()}</span>
+                                <span className="text-[11px] text-[#555]">Spot Rate: ${spotAvg.toLocaleString()}</span>
                               </>
                             )}
                           </div>
@@ -311,13 +311,13 @@ export default function HuckPage() {
                         {opp > 0 && (
                           <div className="bg-emerald-500/10 rounded-lg px-3 py-1.5 text-center">
                             <p className="text-emerald-400 font-black text-sm">${opp.toFixed(0)}</p>
-                            <p className="text-emerald-500/60 text-[9px] font-bold uppercase">Below Mkt</p>
+                            <p className="text-emerald-500/60 text-[9px] font-bold uppercase">Below Spot</p>
                           </div>
                         )}
                         {opp < 0 && (
                           <div className="bg-red-500/10 rounded-lg px-3 py-1.5 text-center">
                             <p className="text-red-400 font-black text-sm">${Math.abs(opp).toFixed(0)}</p>
-                            <p className="text-red-500/60 text-[9px] font-bold uppercase">Above Mkt</p>
+                            <p className="text-red-500/60 text-[9px] font-bold uppercase">Above Spot</p>
                           </div>
                         )}
 
