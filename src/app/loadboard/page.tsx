@@ -14,7 +14,18 @@ import {
   X,
   Zap,
   Download,
+  Users,
+  Truck,
+  MapPin,
 } from 'lucide-react'
+
+type Driver = {
+  id: string
+  name: string
+  location: string
+  equipment_type: string
+  available: boolean
+}
 
 const DAT_BLUE = '#2857E0'
 
@@ -57,6 +68,10 @@ export default function LoadBoardPage() {
   const [collected, setCollected] = useState(false)
   const [collectedCount, setCollectedCount] = useState(0)
   const [expandedLoadId, setExpandedLoadId] = useState<string | null>(null)
+  const [drivers, setDrivers] = useState<Driver[]>([])
+  const [matchedLoads, setMatchedLoads] = useState(0)
+  const [matchedDrivers, setMatchedDrivers] = useState(0)
+  const [scanPhase, setScanPhase] = useState<'idle' | 'collecting' | 'assigning' | 'done'>('idle')
 
   // Filters
   const [originFilter, setOriginFilter] = useState('')
@@ -64,12 +79,14 @@ export default function LoadBoardPage() {
   const [equipFilter, setEquipFilter] = useState('All Equipment')
 
   const fetchData = useCallback(async () => {
-    const [loadsRes, spotRes] = await Promise.all([
+    const [loadsRes, spotRes, driversRes] = await Promise.all([
       insforge.database.from('loads').select().order('created_at', { ascending: false }),
       insforge.database.from('spot_rates').select(),
+      insforge.database.from('drivers').select().eq('available', true),
     ])
     setLoads((loadsRes.data || []) as Load[])
     setSpotRates((spotRes.data || []) as SpotRate[])
+    setDrivers((driversRes.data || []) as Driver[])
   }, [])
 
   useEffect(() => {
@@ -99,12 +116,29 @@ export default function LoadBoardPage() {
 
   async function handleCollectListings() {
     setCollecting(true)
-    const res = await fetch('/api/collect-listings', { method: 'POST' })
-    const data = await res.json()
-    await new Promise((r) => setTimeout(r, 1500))
+    setScanPhase('collecting')
+
+    // Step 1: Collect listings
+    const collectRes = await fetch('/api/collect-listings', { method: 'POST' })
+    const collectData = await collectRes.json()
+    const collectedNum = collectData.collected_count || filteredLoads.length
+    setCollectedCount(collectedNum)
+    await new Promise((r) => setTimeout(r, 1200))
+
+    // Step 2: Assign drivers to loads
+    setScanPhase('assigning')
+    const assignRes = await fetch('/api/assign-drivers', { method: 'POST' })
+    const assignData = await assignRes.json()
+    await new Promise((r) => setTimeout(r, 1200))
+
+    // Show results
+    setMatchedLoads(assignData.matched_loads || collectedNum)
+    setMatchedDrivers(assignData.matched_drivers || drivers.length)
+    setScanPhase('done')
     setCollected(true)
-    setCollectedCount(data.collected_count || filteredLoads.length)
-    await new Promise((r) => setTimeout(r, 800))
+
+    // Redirect after a short delay
+    await new Promise((r) => setTimeout(r, 1800))
     router.push('/')
   }
 
@@ -380,18 +414,68 @@ export default function LoadBoardPage() {
           <div className="px-5 py-4">
             {!collecting && !collected && (
               <>
-                <p className="text-[#aaa] text-xs mb-1">
-                  Detected <span className="text-white font-bold">{filteredLoads.length} loads</span> on this page
-                </p>
-                <p className="text-[#666] text-[11px] mb-4">
-                  HUCK will analyze rates against market data and negotiate the best deals for you.
-                </p>
+                {/* Stats row */}
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="h-7 w-7 rounded-md bg-[#1a1a1a] flex items-center justify-center">
+                      <Truck className="h-3.5 w-3.5 text-emerald-400" />
+                    </div>
+                    <div>
+                      <p className="text-white text-sm font-bold leading-tight">{filteredLoads.length}</p>
+                      <p className="text-[#666] text-[10px]">Loads on page</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="h-7 w-7 rounded-md bg-[#1a1a1a] flex items-center justify-center">
+                      <Users className="h-3.5 w-3.5 text-blue-400" />
+                    </div>
+                    <div>
+                      <p className="text-white text-sm font-bold leading-tight">{drivers.length}</p>
+                      <p className="text-[#666] text-[10px]">Drivers synced</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Available drivers list */}
+                {drivers.length > 0 && (
+                  <div className="mb-4 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] overflow-hidden">
+                    <div className="px-3 py-1.5 border-b border-[#2a2a2a] flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#666]">Available Drivers</span>
+                      <span className="text-[10px] text-emerald-400 font-medium">via Motive</span>
+                    </div>
+                    {drivers.slice(0, 3).map((driver) => (
+                      <div key={driver.id} className="px-3 py-2 flex items-center gap-2.5 border-b border-[#222] last:border-b-0">
+                        <div className="h-6 w-6 rounded-full bg-[#252525] flex items-center justify-center flex-shrink-0">
+                          <span className="text-[10px] font-bold text-emerald-400">
+                            {driver.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+                          </span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-white text-xs font-medium truncate">{driver.name}</p>
+                          <div className="flex items-center gap-1">
+                            <MapPin className="h-2.5 w-2.5 text-[#555]" />
+                            <p className="text-[#666] text-[10px] truncate">{driver.location}</p>
+                          </div>
+                        </div>
+                        <span className="inline-flex items-center justify-center rounded text-[9px] font-bold px-1.5 py-0.5 text-emerald-400 bg-emerald-400/10 flex-shrink-0">
+                          {EQUIP_CODE[driver.equipment_type] || driver.equipment_type}
+                        </span>
+                      </div>
+                    ))}
+                    {drivers.length > 3 && (
+                      <div className="px-3 py-1.5 text-center">
+                        <span className="text-[10px] text-[#555]">+{drivers.length - 3} more available</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <button
                   onClick={handleCollectListings}
                   className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold text-sm hover:from-emerald-600 hover:to-emerald-700 transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
                 >
-                  <Download className="h-4 w-4" />
-                  Collect Listings
+                  <Users className="h-4 w-4" />
+                  Assign Drivers &amp; Collect
                 </button>
               </>
             )}
@@ -401,12 +485,34 @@ export default function LoadBoardPage() {
                 <div className="relative mx-auto w-12 h-12 mb-3">
                   <div className="absolute inset-0 rounded-full border-2 border-emerald-500/20" />
                   <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-emerald-500 animate-spin" />
-                  <Zap className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-5 w-5 text-emerald-400" />
+                  {scanPhase === 'collecting' ? (
+                    <Download className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-5 w-5 text-emerald-400" />
+                  ) : (
+                    <Users className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-5 w-5 text-emerald-400" />
+                  )}
                 </div>
-                <p className="text-white text-sm font-semibold mb-1">Scanning listings...</p>
-                <p className="text-[#666] text-[11px]">Analyzing {filteredLoads.length} loads against spot rates</p>
+                <p className="text-white text-sm font-semibold mb-1">
+                  {scanPhase === 'collecting' ? 'Collecting listings...' : 'Matching drivers to loads...'}
+                </p>
+                <p className="text-[#666] text-[11px]">
+                  {scanPhase === 'collecting'
+                    ? `Scanning ${filteredLoads.length} loads from DAT`
+                    : `Assigning ${drivers.length} drivers by equipment & proximity`}
+                </p>
                 <div className="mt-3 w-full bg-[#1a1a1a] rounded-full h-1.5 overflow-hidden">
-                  <div className="bg-emerald-500 h-full rounded-full animate-[progress_2s_ease-in-out]" style={{ width: '100%' }} />
+                  <div
+                    className="bg-emerald-500 h-full rounded-full transition-all duration-1000 ease-in-out"
+                    style={{ width: scanPhase === 'collecting' ? '45%' : '100%' }}
+                  />
+                </div>
+                <div className="mt-2 flex items-center justify-center gap-3">
+                  <span className={`text-[10px] font-medium ${scanPhase === 'collecting' ? 'text-emerald-400' : 'text-[#555]'}`}>
+                    1. Collect
+                  </span>
+                  <span className="text-[#333] text-[10px]">&rarr;</span>
+                  <span className={`text-[10px] font-medium ${scanPhase === 'assigning' ? 'text-emerald-400' : 'text-[#555]'}`}>
+                    2. Assign
+                  </span>
                 </div>
               </div>
             )}
@@ -418,7 +524,9 @@ export default function LoadBoardPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
-                <p className="text-white text-sm font-semibold mb-1">{collectedCount} listings collected!</p>
+                <p className="text-white text-sm font-semibold mb-1">
+                  {matchedLoads} loads matched with {matchedDrivers} drivers
+                </p>
                 <p className="text-[#666] text-[11px]">Opening HUCK dashboard...</p>
               </div>
             )}
