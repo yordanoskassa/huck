@@ -128,12 +128,22 @@ export async function POST(request: Request) {
         target_rate: decision.targetRate,
       })
     } else {
+      // Check for daily limit error
+      const isLimitError = vapiData.statusCode === 400 && vapiData.message?.includes('Daily Outbound Call Limit')
+
       await admin.database
         .from('call_logs')
-        .update({ outcome: 'error', summary: JSON.stringify(vapiData) })
+        .update({ outcome: 'error', summary: isLimitError ? 'VAPI daily call limit reached' : JSON.stringify(vapiData) })
         .eq('id', callLogEntry.id)
 
       await admin.database.from('loads').update({ status: 'available' }).eq('id', load.id)
+
+      if (isLimitError) {
+        return NextResponse.json({
+          error: 'Daily call limit reached. Import your own Twilio number on VAPI to remove limits.',
+          limit_reached: true,
+        }, { status: 429 })
+      }
 
       return NextResponse.json({ error: 'VAPI call failed', details: vapiData }, { status: 500 })
     }

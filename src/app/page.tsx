@@ -5,6 +5,8 @@ import { insforge } from '@/lib/insforge-browser'
 import { clsx } from 'clsx'
 import type { Load, SpotRate, CallLog, Driver } from '@/lib/types'
 import { format } from 'date-fns'
+import { useRouter } from 'next/navigation'
+import { signOut } from '@/app/actions'
 import {
   ArrowRight,
   Phone,
@@ -27,6 +29,7 @@ import {
   Sparkles,
   Truck,
   User,
+  LogOut,
 } from 'lucide-react'
 
 type Tab = 'listings' | 'negotiating' | 'confirmed'
@@ -46,6 +49,19 @@ export default function HuckPage() {
   const [expandedCallId, setExpandedCallId] = useState<string | null>(null)
   const [sessionDispatchedIds, setSessionDispatchedIds] = useState<Set<string>>(new Set())
   const [summarizingId, setSummarizingId] = useState<string | null>(null)
+  const [callError, setCallError] = useState<string | null>(null)
+  const [userName, setUserName] = useState<string | null>(null)
+  const router = useRouter()
+
+  useEffect(() => {
+    insforge.auth.getCurrentUser().then(({ data }) => {
+      if (data?.user) {
+        const u = data.user
+        const name = u.profile?.name || (u.metadata as Record<string, unknown>)?.name || (u.metadata as Record<string, unknown>)?.full_name || u.email?.split('@')[0] || null
+        setUserName(name as string | null)
+      }
+    })
+  }, [])
 
   const fetchData = useCallback(async () => {
     const [loadsRes, spotRes, callRes, driverRes] = await Promise.all([
@@ -102,11 +118,13 @@ export default function HuckPage() {
         setSessionDispatchedIds((prev) => new Set(prev).add(loadId))
         await fetchData()
         setActiveTab('negotiating')
+      } else if (data.limit_reached) {
+        setCallError('Daily call limit reached on VAPI. Import a Twilio number to continue.')
       } else {
-        alert(data.error || 'Failed to initiate call')
+        setCallError(data.error || 'Failed to initiate call')
       }
     } catch (err) {
-      alert('Failed: ' + String(err))
+      setCallError('Failed: ' + String(err))
     } finally {
       setCallingLoadId(null)
     }
@@ -194,6 +212,21 @@ export default function HuckPage() {
               <RefreshCw className="h-3 w-3" />
               Refresh
             </button>
+            {userName && (
+              <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
+                <div className="h-7 w-7 rounded-full bg-emerald-100 flex items-center justify-center text-[10px] font-bold text-emerald-700">
+                  {userName.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()}
+                </div>
+                <span className="text-xs font-medium text-gray-600">{userName}</span>
+                <button
+                  onClick={async () => { await signOut(); router.push('/login') }}
+                  className="text-gray-300 hover:text-gray-500 transition-colors"
+                  title="Sign out"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -228,6 +261,17 @@ export default function HuckPage() {
           ))}
         </div>
       </div>
+
+      {/* Error banner */}
+      {callError && (
+        <div className="mx-6 mt-4 bg-red-50 border border-red-200 rounded-lg px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 text-red-500 shrink-0" />
+            <p className="text-sm text-red-700">{callError}</p>
+          </div>
+          <button onClick={() => setCallError(null)} className="text-red-400 hover:text-red-600"><X className="h-4 w-4" /></button>
+        </div>
+      )}
 
       {/* ═══ ALL LISTINGS TAB ═══ */}
       {activeTab === 'listings' && (

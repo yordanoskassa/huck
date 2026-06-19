@@ -1,10 +1,9 @@
 'use client'
 
-import { Suspense, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
-import Link from 'next/link'
-import { signIn, initiateGoogleOAuth } from '@/app/actions'
-import { Phone } from 'lucide-react'
+import { Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { initiateGoogleOAuth } from '@/app/actions'
+import { Zap } from 'lucide-react'
 
 export default function LoginPage() {
   return (
@@ -15,90 +14,30 @@ export default function LoginPage() {
 }
 
 function LoginForm() {
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const router = useRouter()
   const searchParams = useSearchParams()
   const oauthError = searchParams.get('error')
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
-
-    const formData = new FormData(e.currentTarget)
-    const result = await signIn(formData)
-
-    if (result.error) {
-      setError(result.error.message || 'Sign in failed')
-      setLoading(false)
-    } else {
-      router.push('/')
-    }
-  }
-
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-950 px-4">
-      <div className="w-full max-w-sm">
-        <div className="flex items-center justify-center gap-3 mb-8">
-          <div className="h-10 w-10 rounded-xl bg-blue-600 flex items-center justify-center">
-            <Phone className="h-5 w-5 text-white" />
+    <div className="min-h-screen flex items-center justify-center bg-[#f8f9fa] px-4">
+      <div className="w-full max-w-sm text-center">
+        <div className="flex items-center justify-center gap-3 mb-2">
+          <div className="h-14 w-14 rounded-2xl bg-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-600/20">
+            <Zap className="h-7 w-7 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-white">FreightAI</h1>
         </div>
+        <h1 className="text-3xl font-black tracking-tight text-gray-900 mb-1">HUCK</h1>
+        <p className="text-sm text-gray-400 mb-8">AI Freight Negotiator</p>
 
         {oauthError && (
-          <p className="text-sm text-red-400 text-center mb-4">
-            Google sign-in failed. Please try again.
-          </p>
+          <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 mb-6">
+            <p className="text-sm text-red-600">Sign-in failed. Please try again.</p>
+          </div>
         )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">Email</label>
-            <input
-              name="email"
-              type="email"
-              required
-              className="w-full rounded-lg border border-gray-800 bg-gray-900 px-4 py-2.5 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
-              placeholder="you@example.com"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">Password</label>
-            <input
-              name="password"
-              type="password"
-              required
-              className="w-full rounded-lg border border-gray-800 bg-gray-900 px-4 py-2.5 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
-              placeholder="Password"
-            />
-          </div>
-
-          {error && <p className="text-sm text-red-400">{error}</p>}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
-          >
-            {loading ? 'Signing in...' : 'Sign In'}
-          </button>
-        </form>
-
-        <div className="relative my-6">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-800" />
-          </div>
-          <div className="relative flex justify-center text-xs">
-            <span className="bg-gray-950 px-2 text-gray-500">or</span>
-          </div>
-        </div>
 
         <form action={initiateGoogleOAuth}>
           <button
             type="submit"
-            className="w-full flex items-center justify-center gap-3 rounded-lg border border-gray-800 bg-gray-900 py-2.5 text-sm font-medium text-white hover:bg-gray-800 transition-colors"
+            className="w-full flex items-center justify-center gap-3 rounded-xl border border-gray-200 bg-white py-3.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm"
           >
             <svg className="h-5 w-5" viewBox="0 0 24 24">
               <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" />
@@ -110,11 +49,8 @@ function LoginForm() {
           </button>
         </form>
 
-        <p className="mt-4 text-center text-sm text-gray-500">
-          No account?{' '}
-          <Link href="/signup" className="text-blue-400 hover:text-blue-300">
-            Sign up
-          </Link>
+        <p className="mt-8 text-[11px] text-gray-300">
+          By signing in, you agree to our Terms of Service
         </p>
       </div>
     </div>
