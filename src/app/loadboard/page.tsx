@@ -56,6 +56,7 @@ export default function LoadBoardPage() {
   const [loading, setLoading] = useState(true)
   const [collecting, setCollecting] = useState(false)
   const [collected, setCollected] = useState(false)
+  const [collectedCount, setCollectedCount] = useState(0)
 
   // Filters
   const [originFilter, setOriginFilter] = useState('')
@@ -86,11 +87,15 @@ export default function LoadBoardPage() {
 
   async function handleCollectListings() {
     setCollecting(true)
-    // Simulate scanning animation
-    await new Promise((r) => setTimeout(r, 2000))
+    // Call API to mark loads as collected
+    const res = await fetch('/api/collect-listings', { method: 'POST' })
+    const data = await res.json()
+    // Show scanning animation
+    await new Promise((r) => setTimeout(r, 1500))
     setCollected(true)
+    setCollectedCount(data.collected_count || filteredLoads.length)
     await new Promise((r) => setTimeout(r, 800))
-    router.push('/huck')
+    router.push('/')
   }
 
   if (loading) {
@@ -310,7 +315,7 @@ export default function LoadBoardPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
-                <p className="text-white text-sm font-semibold mb-1">{filteredLoads.length} listings collected!</p>
+                <p className="text-white text-sm font-semibold mb-1">{collectedCount} listings collected!</p>
                 <p className="text-[#666] text-[11px]">Opening HUCK dashboard...</p>
               </div>
             )}

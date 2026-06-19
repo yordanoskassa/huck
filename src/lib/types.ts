@@ -34,6 +34,7 @@ export interface Load {
   pickup_date: string
   status: 'available' | 'dispatching' | 'accepted' | 'rejected' | 'expired'
   source: string
+  collected: boolean
   created_at: string
 }
 

@@ -43,7 +43,7 @@ export default function HuckPage() {
 
   const fetchData = useCallback(async () => {
     const [loadsRes, spotRes, callRes] = await Promise.all([
-      insforge.database.from('loads').select().order('created_at', { ascending: false }),
+      insforge.database.from('loads').select().eq('collected', true).order('created_at', { ascending: false }),
       insforge.database.from('spot_rates').select(),
       insforge.database.from('call_logs').select().order('created_at', { ascending: false }),
     ])
