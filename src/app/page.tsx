@@ -22,6 +22,9 @@ import {
   X,
   Clock,
   Volume2,
+  AlertCircle,
+  MessageSquare,
+  DollarSign,
 } from 'lucide-react'
 
 const HUCK_GREEN = '#10b981'
@@ -40,6 +43,8 @@ export default function HuckPage() {
   const [activeTab, setActiveTab] = useState<Tab>('listings')
   const [callingLoadId, setCallingLoadId] = useState<string | null>(null)
   const [expandedCallId, setExpandedCallId] = useState<string | null>(null)
+  // Track which load IDs have been dispatched in THIS session
+  const [sessionDispatchedIds, setSessionDispatchedIds] = useState<Set<string>>(new Set())
 
   const fetchData = useCallback(async () => {
     const [loadsRes, spotRes, callRes] = await Promise.all([
@@ -87,6 +92,7 @@ export default function HuckPage() {
       })
       const data = await res.json()
       if (data.success) {
+        setSessionDispatchedIds((prev) => new Set(prev).add(loadId))
         await fetchData()
         setActiveTab('negotiating')
       } else {
@@ -107,23 +113,29 @@ export default function HuckPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loads, spotRates])
 
-  // ── Active negotiations (dispatching / in_progress) ──
+  // ── Active negotiations: only calls dispatched THIS session that are still active ──
   const negotiatingCalls = callLogs.filter(
-    (c) => c.outcome === 'in_progress' || c.outcome === 'pending'
+    (c) => (c.outcome === 'in_progress' || c.outcome === 'pending') && sessionDispatchedIds.has(c.load_id)
   )
-  const dispatchingLoads = loads.filter((l) => l.status === 'dispatching')
+  const dispatchingLoads = loads.filter(
+    (l) => l.status === 'dispatching' && sessionDispatchedIds.has(l.id)
+  )
+
+  // ── Pending review (broker offered between posted and spot, deferred to team) ──
+  const pendingReviewCalls = callLogs.filter((c) => c.outcome === 'pending_review')
 
   // ── Confirmed deals ──
   const confirmedCalls = callLogs.filter((c) => c.outcome === 'accepted')
 
-  // Failed/ended calls
-  const failedCalls = callLogs.filter(
-    (c) => c.outcome === 'rejected' || c.outcome === 'no_answer' || c.outcome === 'voicemail' || c.outcome === 'error'
+  // ── Recent ended calls (from this session) ──
+  const recentEndedCalls = callLogs.filter(
+    (c) => (c.outcome === 'rejected' || c.outcome === 'no_answer' || c.outcome === 'voicemail' || c.outcome === 'error')
+      && sessionDispatchedIds.has(c.load_id)
   )
 
   const tabCounts: Record<Tab, number> = {
     listings: availableLoads.length,
-    negotiating: negotiatingCalls.length + dispatchingLoads.length,
+    negotiating: negotiatingCalls.length + dispatchingLoads.length + pendingReviewCalls.length,
     confirmed: confirmedCalls.length,
   }
 
@@ -158,6 +170,10 @@ export default function HuckPage() {
             <a href="/loadboard" className="flex items-center gap-1.5 text-xs text-[#666] hover:text-[#aaa] transition-colors">
               <ExternalLink className="h-3 w-3" />
               DAT Load Board
+            </a>
+            <a href="/motive" className="flex items-center gap-1.5 text-xs text-[#666] hover:text-[#aaa] transition-colors">
+              <ExternalLink className="h-3 w-3" />
+              Motive
             </a>
             <button
               onClick={() => fetchData()}
@@ -357,7 +373,7 @@ export default function HuckPage() {
       {/* ═══ NEGOTIATING TAB ═══ */}
       {activeTab === 'negotiating' && (
         <div className="px-6 py-4">
-          {negotiatingCalls.length === 0 && dispatchingLoads.length === 0 ? (
+          {negotiatingCalls.length === 0 && dispatchingLoads.length === 0 && pendingReviewCalls.length === 0 && recentEndedCalls.length === 0 ? (
             <EmptyState
               title="No active negotiations"
               subtitle="Click Negotiate on a listing to start a call"
@@ -371,7 +387,7 @@ export default function HuckPage() {
                 const isExpanded = expandedCallId === String(call.id)
 
                 return (
-                  <div key={call.id} className="bg-[#111] rounded-xl border border-[#1a1a1a] overflow-hidden">
+                  <div key={call.id} className="bg-[#111] rounded-xl border border-amber-500/20 overflow-hidden">
                     <div
                       className="px-5 py-4 flex items-center justify-between cursor-pointer hover:bg-[#151515] transition-colors"
                       onClick={() => setExpandedCallId(isExpanded ? null : String(call.id))}
@@ -474,21 +490,171 @@ export default function HuckPage() {
                   </div>
                 ))}
 
-              {/* Failed calls */}
-              {failedCalls.length > 0 && (
+              {/* ═══ PENDING REVIEW SECTION ═══ */}
+              {pendingReviewCalls.length > 0 && (
+                <div className="mt-4">
+                  <p className="text-xs text-blue-400 font-bold uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    Pending Review — Broker Offers
+                  </p>
+                  {pendingReviewCalls.map((call) => {
+                    const load = loads.find((l) => l.id === call.load_id)
+                    const spot = load ? findSpot(load) : undefined
+                    const isExpanded = expandedCallId === String(call.id)
+
+                    return (
+                      <div key={call.id} className="bg-[#111] rounded-xl border border-blue-500/20 overflow-hidden mb-2">
+                        <div
+                          className="px-5 py-4 flex items-center justify-between cursor-pointer hover:bg-[#151515] transition-colors"
+                          onClick={() => setExpandedCallId(isExpanded ? null : String(call.id))}
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className="h-12 w-12 rounded-xl bg-blue-500/10 flex items-center justify-center">
+                              <MessageSquare className="h-5 w-5 text-blue-400" />
+                            </div>
+                            <div>
+                              <p className="font-bold text-white">
+                                {load ? `${load.origin_city}, ${load.origin_state}` : '...'}{' '}
+                                <ArrowRight className="h-3 w-3 inline text-[#555]" />{' '}
+                                {load ? `${load.dest_city}, ${load.dest_state}` : '...'}
+                              </p>
+                              <p className="text-xs text-[#666] mt-0.5">
+                                {load?.broker_name} &middot; Deferred to team for review
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-5">
+                            <div className="text-right">
+                              <p className="text-xs text-[#555]">Posted</p>
+                              <p className="font-bold text-white">${load ? Number(load.posted_rate).toLocaleString() : '--'}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs text-[#555]">Broker Offer</p>
+                              <p className="font-bold text-blue-400">${call.counter_offer_rate ? Number(call.counter_offer_rate).toLocaleString() : '--'}</p>
+                            </div>
+                            {spot && (
+                              <div className="text-right">
+                                <p className="text-xs text-[#555]">Spot Rate</p>
+                                <p className="font-bold text-[#888]">${Number(spot.avg_rate).toLocaleString()}</p>
+                              </div>
+                            )}
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold bg-blue-500/10 text-blue-400">
+                                <Clock className="h-3 w-3" />
+                                Review
+                              </span>
+                              {isExpanded ? <ChevronUp className="h-4 w-4 text-[#555]" /> : <ChevronDown className="h-4 w-4 text-[#555]" />}
+                            </div>
+                          </div>
+                        </div>
+
+                        {isExpanded && (
+                          <div className="px-5 pb-4 border-t border-[#1a1a1a] pt-3 space-y-3">
+                            <div className="grid grid-cols-4 gap-3 text-xs">
+                              <div>
+                                <p className="text-[#555] mb-0.5">Equipment</p>
+                                <p className="text-white">{load?.equipment_type}</p>
+                              </div>
+                              <div>
+                                <p className="text-[#555] mb-0.5">Miles</p>
+                                <p className="text-white">{load?.miles}</p>
+                              </div>
+                              <div>
+                                <p className="text-[#555] mb-0.5">Duration</p>
+                                <p className="text-white">{call.duration_seconds ? `${call.duration_seconds}s` : '--'}</p>
+                              </div>
+                              <div>
+                                <p className="text-[#555] mb-0.5">Rate Gap</p>
+                                <p className="text-amber-400">
+                                  {spot && call.counter_offer_rate
+                                    ? `$${(Number(spot.avg_rate) - Number(call.counter_offer_rate)).toFixed(0)} below spot`
+                                    : '--'}
+                                </p>
+                              </div>
+                            </div>
+                            {call.summary && (
+                              <div className="bg-[#0a0a0a] rounded-lg px-4 py-3 border border-[#1a1a1a]">
+                                <p className="text-[10px] uppercase tracking-wider text-[#555] font-bold mb-1">Call Summary</p>
+                                <p className="text-xs text-[#aaa] italic">&quot;{call.summary}&quot;</p>
+                              </div>
+                            )}
+                            {call.transcript && (
+                              <div className="bg-[#0a0a0a] rounded-lg px-4 py-3 border border-[#1a1a1a] max-h-40 overflow-y-auto">
+                                <p className="text-[10px] uppercase tracking-wider text-[#555] font-bold mb-1">Transcript</p>
+                                <p className="text-xs text-[#888] whitespace-pre-wrap">{call.transcript}</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* Recent ended calls from this session */}
+              {recentEndedCalls.length > 0 && (
                 <div className="mt-4">
                   <p className="text-xs text-[#555] font-bold uppercase tracking-wider mb-2">Ended</p>
-                  {failedCalls.map((call) => {
+                  {recentEndedCalls.map((call) => {
                     const load = loads.find((l) => l.id === call.load_id)
+                    const isExpanded = expandedCallId === String(call.id)
+                    const outcomeLabel = call.outcome === 'rejected' ? 'Rejected' : call.outcome === 'voicemail' ? 'Voicemail' : call.outcome === 'no_answer' ? 'No Answer' : 'Error'
+                    const outcomeColor = call.outcome === 'rejected' ? 'text-red-400' : 'text-[#888]'
+
                     return (
-                      <div key={call.id} className="bg-[#111] rounded-xl border border-[#1a1a1a] px-5 py-3 flex items-center justify-between mb-2 opacity-60">
-                        <div className="flex items-center gap-3">
-                          <X className="h-4 w-4 text-red-400/60" />
-                          <p className="text-sm text-[#888]">
-                            {load ? `${load.origin_city} → ${load.dest_city}` : '...'}
-                          </p>
+                      <div key={call.id} className="bg-[#111] rounded-xl border border-[#1a1a1a] overflow-hidden mb-2">
+                        <div
+                          className="px-5 py-3 flex items-center justify-between cursor-pointer hover:bg-[#151515] transition-colors"
+                          onClick={() => setExpandedCallId(isExpanded ? null : String(call.id))}
+                        >
+                          <div className="flex items-center gap-3">
+                            <X className="h-4 w-4 text-red-400/60" />
+                            <p className="text-sm text-[#888]">
+                              {load ? `${load.origin_city}, ${load.origin_state} → ${load.dest_city}, ${load.dest_state}` : '...'}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className={clsx('text-xs font-bold', outcomeColor)}>{outcomeLabel}</span>
+                            {call.duration_seconds && <span className="text-xs text-[#555]">{call.duration_seconds}s</span>}
+                            {isExpanded ? <ChevronUp className="h-4 w-4 text-[#555]" /> : <ChevronDown className="h-4 w-4 text-[#555]" />}
+                          </div>
                         </div>
-                        <span className="text-xs text-[#555]">{call.outcome}</span>
+                        {isExpanded && (
+                          <div className="px-5 pb-3 border-t border-[#1a1a1a] pt-3 space-y-2">
+                            {call.summary && (
+                              <div className="bg-[#0a0a0a] rounded-lg px-4 py-3 border border-[#1a1a1a]">
+                                <p className="text-[10px] uppercase tracking-wider text-[#555] font-bold mb-1">Summary</p>
+                                <p className="text-xs text-[#aaa] italic">&quot;{call.summary}&quot;</p>
+                              </div>
+                            )}
+                            {call.transcript && (
+                              <div className="bg-[#0a0a0a] rounded-lg px-4 py-3 border border-[#1a1a1a] max-h-40 overflow-y-auto">
+                                <p className="text-[10px] uppercase tracking-wider text-[#555] font-bold mb-1">Transcript</p>
+                                <p className="text-xs text-[#888] whitespace-pre-wrap">{call.transcript}</p>
+                              </div>
+                            )}
+                            <div className="grid grid-cols-3 gap-3 text-xs">
+                              <div>
+                                <p className="text-[#555] mb-0.5">Offered</p>
+                                <p className="text-white">${Number(call.offered_rate).toLocaleString()}</p>
+                              </div>
+                              {call.counter_offer_rate && (
+                                <div>
+                                  <p className="text-[#555] mb-0.5">Broker Counter</p>
+                                  <p className="text-amber-400">${Number(call.counter_offer_rate).toLocaleString()}</p>
+                                </div>
+                              )}
+                              {call.final_rate && (
+                                <div>
+                                  <p className="text-[#555] mb-0.5">Final</p>
+                                  <p className="text-white">${Number(call.final_rate).toLocaleString()}</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )
                   })}
@@ -513,10 +679,14 @@ export default function HuckPage() {
                 const load = loads.find((l) => l.id === call.load_id)
                 const spot = load ? findSpot(load) : undefined
                 const savings = spot && call.final_rate ? Number(spot.avg_rate) - Number(call.final_rate) : null
+                const isExpanded = expandedCallId === String(call.id)
 
                 return (
                   <div key={call.id} className="bg-[#111] rounded-xl border border-emerald-500/20 overflow-hidden">
-                    <div className="px-5 py-4 flex items-center justify-between">
+                    <div
+                      className="px-5 py-4 flex items-center justify-between cursor-pointer hover:bg-[#151515] transition-colors"
+                      onClick={() => setExpandedCallId(isExpanded ? null : String(call.id))}
+                    >
                       <div className="flex items-center gap-4">
                         <div className="h-12 w-12 rounded-xl bg-emerald-500/10 flex items-center justify-center">
                           <CheckCircle className="h-6 w-6 text-emerald-400" />
@@ -546,18 +716,48 @@ export default function HuckPage() {
                             <p className="text-emerald-500/60 text-[9px] font-bold uppercase">Saved</p>
                           </div>
                         )}
-                        <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold bg-emerald-500/10 text-emerald-400">
-                          <CheckCircle className="h-3 w-3" />
-                          Confirmed
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold bg-emerald-500/10 text-emerald-400">
+                            <CheckCircle className="h-3 w-3" />
+                            Confirmed
+                          </span>
+                          {isExpanded ? <ChevronUp className="h-4 w-4 text-[#555]" /> : <ChevronDown className="h-4 w-4 text-[#555]" />}
+                        </div>
                       </div>
                     </div>
 
-                    {call.summary && (
-                      <div className="px-5 pb-4">
-                        <p className="text-xs text-[#666] bg-[#0a0a0a] rounded-lg px-4 py-3 italic border border-[#1a1a1a]">
-                          &quot;{call.summary}&quot;
-                        </p>
+                    {isExpanded && (
+                      <div className="px-5 pb-4 border-t border-[#1a1a1a] pt-3 space-y-3">
+                        <div className="grid grid-cols-4 gap-3 text-xs">
+                          <div>
+                            <p className="text-[#555] mb-0.5">Posted Rate</p>
+                            <p className="text-white">${load ? Number(load.posted_rate).toLocaleString() : '--'}</p>
+                          </div>
+                          <div>
+                            <p className="text-[#555] mb-0.5">Spot Rate</p>
+                            <p className="text-white">{spot ? `$${Number(spot.avg_rate).toLocaleString()}` : '--'}</p>
+                          </div>
+                          <div>
+                            <p className="text-[#555] mb-0.5">Duration</p>
+                            <p className="text-white">{call.duration_seconds ? `${call.duration_seconds}s` : '--'}</p>
+                          </div>
+                          <div>
+                            <p className="text-[#555] mb-0.5">Strategy</p>
+                            <p className={clsx('font-bold', call.strategy === 'accept' ? 'text-emerald-400' : 'text-amber-400')}>{call.strategy}</p>
+                          </div>
+                        </div>
+                        {call.summary && (
+                          <div className="bg-[#0a0a0a] rounded-lg px-4 py-3 border border-[#1a1a1a]">
+                            <p className="text-[10px] uppercase tracking-wider text-[#555] font-bold mb-1">Call Summary</p>
+                            <p className="text-xs text-[#aaa] italic">&quot;{call.summary}&quot;</p>
+                          </div>
+                        )}
+                        {call.transcript && (
+                          <div className="bg-[#0a0a0a] rounded-lg px-4 py-3 border border-[#1a1a1a] max-h-40 overflow-y-auto">
+                            <p className="text-[10px] uppercase tracking-wider text-[#555] font-bold mb-1">Transcript</p>
+                            <p className="text-xs text-[#888] whitespace-pre-wrap">{call.transcript}</p>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

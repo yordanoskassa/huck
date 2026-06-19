@@ -91,6 +91,37 @@ export async function POST(request: Request) {
         break
       }
 
+      case 'defer_to_team': {
+        const { call_log_id, broker_offer, summary } = args
+        const deferUpdate: Record<string, unknown> = {
+          outcome: 'pending_review',
+          counter_offer_rate: Number(broker_offer),
+          ended_at: new Date().toISOString(),
+        }
+        if (summary) deferUpdate.summary = summary
+
+        await admin.database
+          .from('call_logs')
+          .update(deferUpdate)
+          .eq('id', call_log_id)
+
+        // Revert load to available (not accepted, just pending review)
+        const { data: deferCl } = await admin.database
+          .from('call_logs')
+          .select('load_id')
+          .eq('id', call_log_id)
+          .maybeSingle()
+        if (deferCl) {
+          await admin.database
+            .from('loads')
+            .update({ status: 'available' })
+            .eq('id', (deferCl as Record<string, unknown>).load_id)
+        }
+
+        result = JSON.stringify({ success: true, message: 'Deferred to team for review', broker_offer })
+        break
+      }
+
       case 'log_call_outcome': {
         const { call_log_id, outcome, final_rate, summary } = args
         const updateData: Record<string, unknown> = {

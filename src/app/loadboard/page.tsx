@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { insforge } from '@/lib/insforge-browser'
 import { clsx } from 'clsx'
-import type { Load } from '@/lib/types'
+import type { Load, SpotRate } from '@/lib/types'
 import { format } from 'date-fns'
 import {
   Search,
@@ -12,10 +12,18 @@ import {
   ChevronDown,
   ArrowRight,
   X,
-  Star,
-  Filter,
-  Download,
   Zap,
+  Download,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  MapPin,
+  Calendar,
+  Truck,
+  Weight,
+  DollarSign,
+  Phone,
+  Building2,
 } from 'lucide-react'
 
 const DAT_BLUE = '#2857E0'
@@ -53,10 +61,12 @@ const EQUIPMENT_TYPES = ['All Equipment', 'Dry Van', 'Reefer', 'Flatbed', 'Step 
 export default function LoadBoardPage() {
   const router = useRouter()
   const [loads, setLoads] = useState<Load[]>([])
+  const [spotRates, setSpotRates] = useState<SpotRate[]>([])
   const [loading, setLoading] = useState(true)
   const [collecting, setCollecting] = useState(false)
   const [collected, setCollected] = useState(false)
   const [collectedCount, setCollectedCount] = useState(0)
+  const [expandedLoadId, setExpandedLoadId] = useState<string | null>(null)
 
   // Filters
   const [originFilter, setOriginFilter] = useState('')
@@ -64,13 +74,25 @@ export default function LoadBoardPage() {
   const [equipFilter, setEquipFilter] = useState('All Equipment')
 
   const fetchData = useCallback(async () => {
-    const { data } = await insforge.database.from('loads').select().order('created_at', { ascending: false })
-    setLoads((data || []) as Load[])
+    const [loadsRes, spotRes] = await Promise.all([
+      insforge.database.from('loads').select().order('created_at', { ascending: false }),
+      insforge.database.from('spot_rates').select(),
+    ])
+    setLoads((loadsRes.data || []) as Load[])
+    setSpotRates((spotRes.data || []) as SpotRate[])
   }, [])
 
   useEffect(() => {
     fetchData().finally(() => setLoading(false))
   }, [fetchData])
+
+  function findSpot(load: Load): SpotRate | undefined {
+    return spotRates.find(
+      (sr) => sr.origin_city === load.origin_city && sr.origin_state === load.origin_state &&
+        sr.dest_city === load.dest_city && sr.dest_state === load.dest_state &&
+        sr.equipment_type === load.equipment_type
+    )
+  }
 
   const filteredLoads = loads.filter((l) => {
     if (originFilter) {
@@ -87,10 +109,8 @@ export default function LoadBoardPage() {
 
   async function handleCollectListings() {
     setCollecting(true)
-    // Call API to mark loads as collected
     const res = await fetch('/api/collect-listings', { method: 'POST' })
     const data = await res.json()
-    // Show scanning animation
     await new Promise((r) => setTimeout(r, 1500))
     setCollected(true)
     setCollectedCount(data.collected_count || filteredLoads.length)
@@ -193,54 +213,257 @@ export default function LoadBoardPage() {
                     <p className="text-sm font-medium text-[#5a6872]">No loads found</p>
                   </td></tr>
                 ) : (
-                  filteredLoads.map((load, idx) => (
-                    <tr key={load.id}
-                      className={clsx(
-                        'border-b border-[#ebedf0] transition-colors',
-                        idx % 2 === 0 ? 'bg-white' : 'bg-[#f7f8fa]',
-                        'hover:bg-[#f0f4ff]',
-                        collecting && 'animate-pulse'
-                      )}
-                    >
-                      <td className="px-3 py-2.5 pl-4 whitespace-nowrap text-xs text-[#5a6872]">
-                        {Math.floor(Math.random() * 30) + 1}m
-                      </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">
-                        <span className="font-semibold text-[#1a1a1a]">{load.miles}</span>
-                        <span className="text-[#8d969e] text-xs ml-0.5">mi</span>
-                      </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">
-                        <span className="font-semibold text-[#1a1a1a]">{load.origin_city}</span>
-                        <span className="text-[#5a6872] ml-1">{load.origin_state}</span>
-                      </td>
-                      <td className="px-1 py-2.5"><ArrowRight className="h-3 w-3 text-[#c5cbd0]" /></td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">
-                        <span className="font-semibold text-[#1a1a1a]">{load.dest_city}</span>
-                        <span className="text-[#5a6872] ml-1">{load.dest_state}</span>
-                      </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">
-                        <span className="font-bold text-[15px] text-[#1a1a1a]">${Number(load.posted_rate).toLocaleString()}</span>
-                      </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap text-[#1a1a1a] font-semibold">
-                        ${Number(load.rate_per_mile).toFixed(2)}
-                      </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">
-                        <span className="inline-flex items-center justify-center rounded font-bold text-[11px] px-2 py-0.5 text-white"
-                          style={{ backgroundColor: EQUIP_COLOR[load.equipment_type] || DAT_BLUE }}>
-                          {EQUIP_CODE[load.equipment_type] || 'V'}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap text-[#5a6872] text-sm">
-                        {load.weight ? `${(load.weight / 1000).toFixed(0)}k` : '--'}
-                      </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap text-[#5a6872] text-sm">
-                        {format(new Date(load.pickup_date), 'MM/dd')}
-                      </td>
-                      <td className="px-3 py-2.5 pr-4 whitespace-nowrap">
-                        <span className="font-medium text-sm" style={{ color: DAT_BLUE }}>{load.broker_name}</span>
-                      </td>
-                    </tr>
-                  ))
+                  filteredLoads.map((load, idx) => {
+                    const isExpanded = expandedLoadId === load.id
+                    const spot = findSpot(load)
+                    const spotAvg = spot ? Number(spot.avg_rate) : null
+                    const spotHigh = spot ? Number(spot.high_rate) : null
+                    const spotLow = spot ? Number(spot.low_rate) : null
+                    const posted = Number(load.posted_rate)
+                    const diff = spotAvg ? posted - spotAvg : null
+                    const diffPct = spotAvg ? ((posted - spotAvg) / spotAvg * 100) : null
+
+                    return (
+                      <>
+                        <tr key={load.id}
+                          className={clsx(
+                            'border-b border-[#ebedf0] transition-colors cursor-pointer',
+                            isExpanded ? 'bg-[#f0f4ff]' : idx % 2 === 0 ? 'bg-white' : 'bg-[#f7f8fa]',
+                            'hover:bg-[#f0f4ff]',
+                            collecting && 'animate-pulse'
+                          )}
+                          onClick={() => setExpandedLoadId(isExpanded ? null : load.id)}
+                        >
+                          <td className="px-3 py-2.5 pl-4 whitespace-nowrap text-xs text-[#5a6872]">
+                            {Math.floor(Math.random() * 30) + 1}m
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            <span className="font-semibold text-[#1a1a1a]">{load.miles}</span>
+                            <span className="text-[#8d969e] text-xs ml-0.5">mi</span>
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            <span className="font-semibold text-[#1a1a1a]">{load.origin_city}</span>
+                            <span className="text-[#5a6872] ml-1">{load.origin_state}</span>
+                          </td>
+                          <td className="px-1 py-2.5"><ArrowRight className="h-3 w-3 text-[#c5cbd0]" /></td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            <span className="font-semibold text-[#1a1a1a]">{load.dest_city}</span>
+                            <span className="text-[#5a6872] ml-1">{load.dest_state}</span>
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            <span className="font-bold text-[15px] text-[#1a1a1a]">${posted.toLocaleString()}</span>
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap text-[#1a1a1a] font-semibold">
+                            ${Number(load.rate_per_mile).toFixed(2)}
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            <span className="inline-flex items-center justify-center rounded font-bold text-[11px] px-2 py-0.5 text-white"
+                              style={{ backgroundColor: EQUIP_COLOR[load.equipment_type] || DAT_BLUE }}>
+                              {EQUIP_CODE[load.equipment_type] || 'V'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap text-[#5a6872] text-sm">
+                            {load.weight ? `${(load.weight / 1000).toFixed(0)}k` : '--'}
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap text-[#5a6872] text-sm">
+                            {format(new Date(load.pickup_date), 'MM/dd')}
+                          </td>
+                          <td className="px-3 py-2.5 pr-4 whitespace-nowrap">
+                            <span className="font-medium text-sm" style={{ color: DAT_BLUE }}>{load.broker_name}</span>
+                          </td>
+                        </tr>
+
+                        {/* ═══ EXPANDED DETAIL ROW ═══ */}
+                        {isExpanded && (
+                          <tr key={`${load.id}-detail`} className="bg-[#f7f9fc]">
+                            <td colSpan={11} className="px-0 py-0">
+                              <div className="px-6 py-5 border-b-2" style={{ borderColor: DAT_BLUE + '30' }}>
+                                <div className="grid grid-cols-3 gap-6">
+                                  {/* Column 1: Load Details */}
+                                  <div>
+                                    <h4 className="text-xs font-bold uppercase tracking-wider text-[#5a6872] mb-3 flex items-center gap-1.5">
+                                      <Truck className="h-3.5 w-3.5" />
+                                      Load Details
+                                    </h4>
+                                    <div className="space-y-2.5">
+                                      <div className="flex items-start gap-3">
+                                        <MapPin className="h-3.5 w-3.5 text-[#8d969e] mt-0.5 shrink-0" />
+                                        <div>
+                                          <p className="text-xs text-[#8d969e]">Origin</p>
+                                          <p className="text-sm font-semibold text-[#1a1a1a]">{load.origin_city}, {load.origin_state}</p>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-start gap-3">
+                                        <MapPin className="h-3.5 w-3.5 text-[#8d969e] mt-0.5 shrink-0" />
+                                        <div>
+                                          <p className="text-xs text-[#8d969e]">Destination</p>
+                                          <p className="text-sm font-semibold text-[#1a1a1a]">{load.dest_city}, {load.dest_state}</p>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-start gap-3">
+                                        <Calendar className="h-3.5 w-3.5 text-[#8d969e] mt-0.5 shrink-0" />
+                                        <div>
+                                          <p className="text-xs text-[#8d969e]">Pickup Date</p>
+                                          <p className="text-sm font-semibold text-[#1a1a1a]">{format(new Date(load.pickup_date), 'EEEE, MMM d, yyyy')}</p>
+                                        </div>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-3 mt-1">
+                                        <div className="flex items-start gap-3">
+                                          <Truck className="h-3.5 w-3.5 text-[#8d969e] mt-0.5 shrink-0" />
+                                          <div>
+                                            <p className="text-xs text-[#8d969e]">Equipment</p>
+                                            <p className="text-sm font-semibold text-[#1a1a1a]">{load.equipment_type}</p>
+                                          </div>
+                                        </div>
+                                        <div className="flex items-start gap-3">
+                                          <Weight className="h-3.5 w-3.5 text-[#8d969e] mt-0.5 shrink-0" />
+                                          <div>
+                                            <p className="text-xs text-[#8d969e]">Weight</p>
+                                            <p className="text-sm font-semibold text-[#1a1a1a]">{load.weight ? `${load.weight.toLocaleString()} lbs` : 'Not specified'}</p>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Column 2: Rate & Spot Data */}
+                                  <div>
+                                    <h4 className="text-xs font-bold uppercase tracking-wider text-[#5a6872] mb-3 flex items-center gap-1.5">
+                                      <DollarSign className="h-3.5 w-3.5" />
+                                      Rate Analysis
+                                    </h4>
+                                    <div className="bg-white rounded-lg border border-[#e0e3e6] p-4">
+                                      <div className="flex items-baseline justify-between mb-3">
+                                        <div>
+                                          <p className="text-xs text-[#8d969e]">Posted Rate</p>
+                                          <p className="text-2xl font-black text-[#1a1a1a]">${posted.toLocaleString()}</p>
+                                        </div>
+                                        <div className="text-right">
+                                          <p className="text-xs text-[#8d969e]">Per Mile</p>
+                                          <p className="text-lg font-bold text-[#1a1a1a]">${Number(load.rate_per_mile).toFixed(2)}</p>
+                                        </div>
+                                      </div>
+
+                                      {spot ? (
+                                        <>
+                                          <div className="border-t border-[#ebedf0] pt-3 mt-3">
+                                            <p className="text-[10px] uppercase tracking-wider text-[#8d969e] font-bold mb-2">DAT Spot Rates (7-day avg)</p>
+                                            <div className="grid grid-cols-3 gap-2">
+                                              <div className="bg-[#f0fdf4] rounded-md px-3 py-2 text-center">
+                                                <p className="text-[9px] uppercase text-[#5a6872] font-bold">Low</p>
+                                                <p className="text-sm font-bold text-[#1a1a1a]">${spotLow?.toLocaleString()}</p>
+                                              </div>
+                                              <div className="rounded-md px-3 py-2 text-center" style={{ backgroundColor: DAT_BLUE + '10' }}>
+                                                <p className="text-[9px] uppercase font-bold" style={{ color: DAT_BLUE }}>Avg</p>
+                                                <p className="text-sm font-bold" style={{ color: DAT_BLUE }}>${spotAvg?.toLocaleString()}</p>
+                                              </div>
+                                              <div className="bg-[#fef3c7] rounded-md px-3 py-2 text-center">
+                                                <p className="text-[9px] uppercase text-[#5a6872] font-bold">High</p>
+                                                <p className="text-sm font-bold text-[#1a1a1a]">${spotHigh?.toLocaleString()}</p>
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          {/* Rate vs Spot comparison */}
+                                          <div className="border-t border-[#ebedf0] pt-3 mt-3">
+                                            <div className="flex items-center justify-between">
+                                              <span className="text-xs text-[#5a6872]">vs Spot Avg</span>
+                                              <span className={clsx(
+                                                'inline-flex items-center gap-1 text-sm font-bold',
+                                                diff !== null && diff < 0 ? 'text-[#0d7c3d]' : diff !== null && diff > 0 ? 'text-[#dc2626]' : 'text-[#5a6872]'
+                                              )}>
+                                                {diff !== null && diff < 0 && <TrendingDown className="h-3.5 w-3.5" />}
+                                                {diff !== null && diff > 0 && <TrendingUp className="h-3.5 w-3.5" />}
+                                                {diff !== null && diff === 0 && <Minus className="h-3.5 w-3.5" />}
+                                                {diff !== null ? `${diff > 0 ? '+' : ''}$${diff.toFixed(0)}` : '--'}
+                                                {diffPct !== null && (
+                                                  <span className="text-[10px] font-medium text-[#8d969e] ml-1">
+                                                    ({diffPct > 0 ? '+' : ''}{diffPct.toFixed(1)}%)
+                                                  </span>
+                                                )}
+                                              </span>
+                                            </div>
+
+                                            {/* Visual bar */}
+                                            {spotAvg && spotLow && spotHigh && (
+                                              <div className="mt-3 relative">
+                                                <div className="h-2 bg-[#e5e7eb] rounded-full relative overflow-visible">
+                                                  {/* Spot range fill */}
+                                                  <div
+                                                    className="absolute h-full rounded-full"
+                                                    style={{
+                                                      backgroundColor: DAT_BLUE + '30',
+                                                      left: '10%',
+                                                      right: '10%',
+                                                    }}
+                                                  />
+                                                  {/* Posted rate marker */}
+                                                  <div
+                                                    className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 border-white shadow-md"
+                                                    style={{
+                                                      backgroundColor: posted < spotAvg ? '#0d7c3d' : posted > spotAvg ? '#dc2626' : DAT_BLUE,
+                                                      left: `${Math.max(5, Math.min(95, ((posted - spotLow) / (spotHigh - spotLow)) * 80 + 10))}%`,
+                                                    }}
+                                                  />
+                                                </div>
+                                                <div className="flex justify-between mt-1 text-[9px] text-[#8d969e]">
+                                                  <span>${spotLow.toLocaleString()}</span>
+                                                  <span>${spotHigh.toLocaleString()}</span>
+                                                </div>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </>
+                                      ) : (
+                                        <div className="border-t border-[#ebedf0] pt-3 mt-3">
+                                          <p className="text-xs text-[#8d969e] italic">No spot rate data available for this lane</p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Column 3: Broker Info */}
+                                  <div>
+                                    <h4 className="text-xs font-bold uppercase tracking-wider text-[#5a6872] mb-3 flex items-center gap-1.5">
+                                      <Building2 className="h-3.5 w-3.5" />
+                                      Broker Information
+                                    </h4>
+                                    <div className="space-y-3">
+                                      <div className="bg-white rounded-lg border border-[#e0e3e6] p-4">
+                                        <p className="font-bold text-[#1a1a1a] text-sm">{load.broker_name}</p>
+                                        <div className="flex items-center gap-2 mt-2">
+                                          <Phone className="h-3.5 w-3.5 text-[#8d969e]" />
+                                          <span className="text-sm text-[#5a6872]">{load.broker_phone}</span>
+                                        </div>
+                                      </div>
+
+                                      <div className="bg-white rounded-lg border border-[#e0e3e6] p-4">
+                                        <p className="text-xs text-[#8d969e] mb-1">Source</p>
+                                        <p className="text-sm font-semibold text-[#1a1a1a]">{load.source || 'DAT Load Board'}</p>
+                                      </div>
+
+                                      <div className="bg-white rounded-lg border border-[#e0e3e6] p-4">
+                                        <p className="text-xs text-[#8d969e] mb-1">Status</p>
+                                        <span className={clsx(
+                                          'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold',
+                                          load.status === 'available' ? 'bg-green-100 text-green-700' :
+                                          load.status === 'dispatching' ? 'bg-amber-100 text-amber-700' :
+                                          load.status === 'accepted' ? 'bg-blue-100 text-blue-700' :
+                                          'bg-gray-100 text-gray-700'
+                                        )}>
+                                          {load.status.charAt(0).toUpperCase() + load.status.slice(1)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    )
+                  })
                 )}
               </tbody>
             </table>
@@ -254,9 +477,7 @@ export default function LoadBoardPage() {
 
       {/* ═══ HUCK EXTENSION OVERLAY ═══ */}
       <div className="fixed bottom-6 right-6 z-50">
-        {/* Extension panel */}
         <div className="bg-[#0f0f0f] rounded-2xl shadow-2xl border border-[#2a2a2a] overflow-hidden w-[320px]">
-          {/* Extension header */}
           <div className="px-5 py-4 flex items-center justify-between border-b border-[#2a2a2a]">
             <div className="flex items-center gap-2.5">
               <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center">
@@ -273,7 +494,6 @@ export default function LoadBoardPage() {
             </div>
           </div>
 
-          {/* Extension body */}
           <div className="px-5 py-4">
             {!collecting && !collected && (
               <>
@@ -321,7 +541,6 @@ export default function LoadBoardPage() {
             )}
           </div>
 
-          {/* Extension footer */}
           <div className="px-5 py-2.5 border-t border-[#2a2a2a] bg-[#0a0a0a]">
             <p className="text-[#444] text-[10px] text-center">HUCK v1.0 &middot; Browser Extension</p>
           </div>

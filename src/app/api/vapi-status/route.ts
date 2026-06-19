@@ -35,26 +35,27 @@ export async function POST(request: Request) {
       ended_at: new Date().toISOString(),
     }
 
-    // If outcome is still in_progress, set based on endedReason
+    // If outcome is still in_progress or pending, set based on endedReason
+    // Don't overwrite outcomes already set by tool calls (accepted, pending_review, rejected)
     if (cl.outcome === 'in_progress' || cl.outcome === 'pending') {
       if (endedReason === 'voicemail') {
         updateData.outcome = 'voicemail'
       } else if (endedReason === 'no-answer' || endedReason === 'busy') {
         updateData.outcome = 'no_answer'
       } else if (endedReason === 'customer-ended-call' || endedReason === 'assistant-ended-call') {
-        // Call completed normally but wasn't explicitly accepted/rejected by tool
         updateData.outcome = 'rejected'
       } else {
         updateData.outcome = 'error'
       }
 
       // Revert load to available if not accepted
-      if (updateData.outcome !== 'accepted') {
-        await admin.database
-          .from('loads')
-          .update({ status: 'available' })
-          .eq('id', cl.load_id)
-      }
+      await admin.database
+        .from('loads')
+        .update({ status: 'available' })
+        .eq('id', cl.load_id)
+    } else if (cl.outcome === 'pending_review') {
+      // Already set by defer_to_team tool — just add transcript/recording, don't change outcome
+      // Load already reverted to available by the tool call
     }
 
     await admin.database

@@ -60,7 +60,7 @@ export interface CallLog {
   offered_rate: number
   counter_offer_rate: number | null
   final_rate: number | null
-  outcome: 'pending' | 'in_progress' | 'accepted' | 'rejected' | 'voicemail' | 'no_answer' | 'error'
+  outcome: 'pending' | 'in_progress' | 'accepted' | 'rejected' | 'pending_review' | 'voicemail' | 'no_answer' | 'error'
   transcript: string | null
   recording_url: string | null
   summary: string | null
