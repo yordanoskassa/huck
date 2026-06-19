@@ -17,7 +17,7 @@ export async function POST() {
     await deleteAll(admin, 'loads')
     await deleteAll(admin, 'drivers')
 
-    const brokerPhone = process.env.DEMO_BROKER_PHONE || '+16163491896'
+    const brokerPhone = process.env.DEMO_BROKER_PHONE || '+16124045871'
 
     const { data: drivers, error: driverErr } = await admin.database
       .from('drivers')
