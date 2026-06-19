@@ -107,9 +107,19 @@ export async function POST(request: Request) {
   // Update call log with AI summary
   const updateData: Record<string, unknown> = {}
   if (parsed.summary) updateData.summary = parsed.summary as string
-  if (parsed.agreed_rate) updateData.final_rate = Number(parsed.agreed_rate)
+  if (parsed.agreed_rate && !cl.final_rate) {
+    updateData.final_rate = Number(parsed.agreed_rate)
+  }
   if (parsed.broker_final_offer && !cl.counter_offer_rate) {
     updateData.counter_offer_rate = Number(parsed.broker_final_offer)
+  }
+  if (
+    parsed.outcome === 'accepted' &&
+    !cl.final_rate &&
+    !updateData.final_rate &&
+    parsed.broker_final_offer
+  ) {
+    updateData.final_rate = Number(parsed.broker_final_offer)
   }
 
   if (Object.keys(updateData).length > 0) {

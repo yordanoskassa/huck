@@ -1,18 +1,12 @@
 /* Run: VAPI_API_KEY=xxx npx tsx scripts/setup-vapi.ts */
 
+import { VAPI_ANALYSIS_PLAN } from '../src/lib/vapi-utils'
+
 const VAPI_API_KEY = process.env.VAPI_API_KEY
 const WEBHOOK_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 
-async function main() {
-  if (!VAPI_API_KEY) {
-    console.error('Set VAPI_API_KEY env variable first')
-    process.exit(1)
-  }
-
-  const webhookUrl = WEBHOOK_BASE_URL + '/api/vapi-webhook'
-  const statusUrl = WEBHOOK_BASE_URL + '/api/vapi-status'
-
-  const tools = [
+function buildTools(webhookUrl: string) {
+  return [
     {
       type: 'function' as const,
       function: {
@@ -65,12 +59,12 @@ async function main() {
       type: 'function' as const,
       function: {
         name: 'make_counter_offer',
-        description: 'Log a counter offer rate during negotiation',
+        description: 'Log OUR counter offer rate during negotiation (not the broker offer)',
         parameters: {
           type: 'object' as const,
           properties: {
             call_log_id: { type: 'string' as const, description: 'The UUID of the call log entry' },
-            counter_rate: { type: 'number' as const, description: 'The counter offer rate in dollars' },
+            counter_rate: { type: 'number' as const, description: 'Our counter offer rate in dollars' },
           },
           required: ['call_log_id', 'counter_rate'],
         },
@@ -80,18 +74,52 @@ async function main() {
     {
       type: 'function' as const,
       function: {
+        name: 'log_broker_offer',
+        description: 'Log the broker\'s latest rate offer whenever they counter or propose a new rate',
+        parameters: {
+          type: 'object' as const,
+          properties: {
+            call_log_id: { type: 'string' as const, description: 'The UUID of the call log entry' },
+            broker_offer: { type: 'number' as const, description: 'The broker\'s offer in dollars' },
+          },
+          required: ['call_log_id', 'broker_offer'],
+        },
+      },
+      server: { url: webhookUrl },
+    },
+    {
+      type: 'function' as const,
+      function: {
+        name: 'defer_to_team',
+        description: 'Defer the decision to the team when the broker offers between posted and spot rate',
+        parameters: {
+          type: 'object' as const,
+          properties: {
+            call_log_id: { type: 'string' as const, description: 'The UUID of the call log entry' },
+            broker_offer: { type: 'number' as const, description: 'The broker\'s final offer amount in dollars' },
+            summary: { type: 'string' as const, description: 'Brief summary of the negotiation' },
+          },
+          required: ['call_log_id', 'broker_offer'],
+        },
+      },
+      server: { url: webhookUrl },
+    },
+    {
+      type: 'function' as const,
+      function: {
         name: 'log_call_outcome',
-        description: 'Log the final outcome of the call',
+        description: 'Log the final outcome of the call. Always call this before ending.',
         parameters: {
           type: 'object' as const,
           properties: {
             call_log_id: { type: 'string' as const, description: 'The UUID of the call log entry' },
             outcome: {
               type: 'string' as const,
-              enum: ['accepted', 'rejected', 'voicemail', 'no_answer'],
+              enum: ['accepted', 'rejected', 'pending_review', 'voicemail', 'no_answer'],
               description: 'The outcome of the call',
             },
             final_rate: { type: 'number' as const, description: 'The final agreed rate if accepted' },
+            broker_offer: { type: 'number' as const, description: 'The broker\'s final offer if pending review or rejected after negotiation' },
             summary: { type: 'string' as const, description: 'Brief summary of the call' },
           },
           required: ['call_log_id', 'outcome'],
@@ -100,9 +128,11 @@ async function main() {
       server: { url: webhookUrl },
     },
   ]
+}
 
-  const systemPrompt = [
-    'You are a professional freight dispatcher calling a broker about a posted load.',
+function buildSystemPrompt() {
+  return [
+    'You are a professional freight dispatcher AI calling a broker about a posted load.',
     '',
     'Load details:',
     '- Origin: {{origin}}',
@@ -113,48 +143,46 @@ async function main() {
     '- Equipment: {{equipment}}',
     '- Broker Name: {{broker_name}}',
     '',
+    'IMPORTANT SYSTEM IDs (use these EXACT values in ALL tool calls):',
+    '- load_id: {{load_id}}',
+    '- call_log_id: {{call_log_id}}',
+    '- driver_id: {{driver_id}}',
+    '',
     'Strategy: {{strategy}}',
     '',
-    'If strategy is "accept":',
-    '- Confirm the load is still available',
-    '- Accept the posted rate quickly',
-    '- Confirm pickup date and equipment requirements',
-    '- Call accept_load with the posted rate as final_rate',
+    'NEGOTIATION RULES:',
+    '1. ALWAYS log every broker rate offer immediately using log_broker_offer with call_log_id={{call_log_id}}.',
+    '2. Log your counter offers with make_counter_offer.',
+    '3. When a deal is reached, call accept_load with the agreed final_rate.',
+    '4. If broker offer is between posted and spot rate, call defer_to_team with broker_offer.',
+    '5. ALWAYS call log_call_outcome with call_log_id={{call_log_id}} before ending — include final_rate or broker_offer.',
     '',
-    'If strategy is "negotiate":',
-    '- Confirm the load is still available',
-    '- Express interest but note the rate is below market',
-    '- Push toward the target_rate',
-    '- If the broker offers anything above 90% of target_rate, accept it',
-    "- If they won't budge after 2 attempts, accept their best offer if it's reasonable",
-    '- Call make_counter_offer to log your counter offers',
-    '- Call accept_load when you reach agreement',
-    '- Call log_call_outcome with "rejected" if no deal is possible',
-    '',
-    'Always be professional and courteous. Keep the conversation focused and efficient.',
-    'End every successful negotiation by confirming: rate, pickup date, and equipment type.',
+    'Be professional and concise. Do not reveal you are an AI.',
   ].join('\n')
+}
+
+async function main() {
+  if (!VAPI_API_KEY) {
+    console.error('Set VAPI_API_KEY env variable first')
+    process.exit(1)
+  }
+
+  const webhookUrl = WEBHOOK_BASE_URL + '/api/vapi-webhook'
+  const statusUrl = WEBHOOK_BASE_URL + '/api/vapi-status'
 
   const assistantPayload = {
     name: 'FreightNegotiator',
     model: {
       provider: 'openai',
       model: 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content: systemPrompt,
-        },
-      ],
-      tools,
+      messages: [{ role: 'system', content: buildSystemPrompt() }],
+      tools: buildTools(webhookUrl),
     },
-    voice: {
-      provider: '11labs',
-      voiceId: 'burt',
-    },
+    voice: { provider: '11labs', voiceId: 'burt' },
     firstMessage:
       'Hi, this is dispatch calling about your posted load from {{origin}} to {{destination}}. Is this still available?',
     serverUrl: statusUrl,
+    analysisPlan: VAPI_ANALYSIS_PLAN,
     endCallFunctionEnabled: true,
     maxDurationSeconds: 300,
     silenceTimeoutSeconds: 30,
