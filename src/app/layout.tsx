@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FreightAI - Multimodal Dispatch",
-  description: "AI-powered trucking dispatch with vision, voice, data, and text",
+  title: "HUCK - AI Freight Negotiator",
+  description: "AI-powered freight negotiation with vision, voice, data, and text",
 };
 
 export default function RootLayout({
