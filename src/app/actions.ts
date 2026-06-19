@@ -48,7 +48,7 @@ export async function initiateGoogleOAuth() {
   })
 
   if (error || !data?.url || !data?.codeVerifier) {
-    return { error: error?.message || 'OAuth init failed' }
+    redirect('/login?error=oauth')
   }
 
   cookieStore.set('insforge_code_verifier', data.codeVerifier, {

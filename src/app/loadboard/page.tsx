@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { insforge } from '@/lib/insforge-browser'
 import { clsx } from 'clsx'
-import type { Load, SpotRate } from '@/lib/types'
+import type { Load, SpotRate, CallLog, AcceptedLoad } from '@/lib/types'
 import { format, formatDistanceToNowStrict } from 'date-fns'
 import {
   Search,
@@ -12,52 +12,61 @@ import {
   ChevronUp,
   ArrowUpDown,
   Phone,
+  PhoneCall,
+  PhoneOff,
   X,
   Clock,
   Star,
   ArrowRight,
+  CheckCircle,
+  Loader2,
+  AlertTriangle,
+  TrendingDown,
+  TrendingUp,
+  Zap,
 } from 'lucide-react'
 
-// DAT brand color
 const DAT_BLUE = '#2857E0'
 
-type SortKey = 'age' | 'trip' | 'rate' | 'rpm' | 'weight' | 'pickup' | 'origin' | 'dest' | 'company'
+type SortKey = 'opportunity' | 'trip' | 'rate' | 'rpm' | 'pickup' | 'origin' | 'dest' | 'company'
 type SortDir = 'asc' | 'desc'
+type Tab = 'loads' | 'dispatching' | 'pending' | 'confirmed'
 
 const EQUIPMENT_TYPES = ['All Equipment', 'Dry Van', 'Reefer', 'Flatbed', 'Step Deck', 'Power Only']
 
-function DATLogo({ size = 'default' }: { size?: 'default' | 'small' }) {
-  const s = size === 'small' ? 20 : 28
-  const fontSize = size === 'small' ? 11 : 15
-  const gap = size === 'small' ? 2 : 3
-  const r = size === 'small' ? 2 : 3
+/* ── DAT ONE LOGO ── */
+function DATLogo() {
   return (
     <div className="flex items-center gap-1.5">
-      <svg width={s * 3 + gap * 2} height={s} viewBox={`0 0 ${s * 3 + gap * 2} ${s}`}>
-        {/* D block */}
-        <rect x={0} y={0} width={s} height={s} rx={r} fill={DAT_BLUE} />
-        <text x={s / 2} y={s / 2} textAnchor="middle" dominantBaseline="central"
-          fill="white" fontWeight="800" fontSize={fontSize} fontFamily="system-ui, -apple-system, sans-serif">D</text>
-        {/* A block */}
-        <rect x={s + gap} y={0} width={s} height={s} rx={r} fill={DAT_BLUE} />
-        <text x={s + gap + s / 2} y={s / 2} textAnchor="middle" dominantBaseline="central"
-          fill="white" fontWeight="800" fontSize={fontSize} fontFamily="system-ui, -apple-system, sans-serif">A</text>
-        {/* T block */}
-        <rect x={(s + gap) * 2} y={0} width={s} height={s} rx={r} fill={DAT_BLUE} />
-        <text x={(s + gap) * 2 + s / 2} y={s / 2} textAnchor="middle" dominantBaseline="central"
-          fill="white" fontWeight="800" fontSize={fontSize} fontFamily="system-ui, -apple-system, sans-serif">T</text>
+      <svg width={90} height={28} viewBox="0 0 90 28">
+        <rect x={0} y={0} width={28} height={28} rx={3} fill={DAT_BLUE} />
+        <text x={14} y={14} textAnchor="middle" dominantBaseline="central"
+          fill="white" fontWeight="800" fontSize={15} fontFamily="system-ui, -apple-system, sans-serif">D</text>
+        <rect x={31} y={0} width={28} height={28} rx={3} fill={DAT_BLUE} />
+        <text x={45} y={14} textAnchor="middle" dominantBaseline="central"
+          fill="white" fontWeight="800" fontSize={15} fontFamily="system-ui, -apple-system, sans-serif">A</text>
+        <rect x={62} y={0} width={28} height={28} rx={3} fill={DAT_BLUE} />
+        <text x={76} y={14} textAnchor="middle" dominantBaseline="central"
+          fill="white" fontWeight="800" fontSize={15} fontFamily="system-ui, -apple-system, sans-serif">T</text>
       </svg>
-      <span className={clsx(
-        'font-black tracking-tight',
-        size === 'small' ? 'text-lg' : 'text-2xl'
-      )} style={{ color: '#1a1a1a' }}>One</span>
+      <span className="text-2xl font-black tracking-tight text-[#1a1a1a]">One</span>
     </div>
   )
+}
+
+/* ── EQUIPMENT BADGE ── */
+const EQUIP_CODE: Record<string, string> = {
+  'Dry Van': 'V', Reefer: 'R', Flatbed: 'F', 'Step Deck': 'SD', 'Power Only': 'PO',
+}
+const EQUIP_COLOR: Record<string, string> = {
+  'Dry Van': DAT_BLUE, Reefer: '#0d7c3d', Flatbed: '#b35c00', 'Step Deck': '#7c3aed', 'Power Only': '#5a6872',
 }
 
 export default function LoadBoardPage() {
   const [loads, setLoads] = useState<Load[]>([])
   const [spotRates, setSpotRates] = useState<SpotRate[]>([])
+  const [callLogs, setCallLogs] = useState<CallLog[]>([])
+  const [acceptedLoads, setAcceptedLoads] = useState<AcceptedLoad[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
@@ -65,32 +74,45 @@ export default function LoadBoardPage() {
   const [originFilter, setOriginFilter] = useState('')
   const [destFilter, setDestFilter] = useState('')
   const [equipFilter, setEquipFilter] = useState('All Equipment')
-  const [showAvailableOnly, setShowAvailableOnly] = useState(true)
 
   // Sort
-  const [sortKey, setSortKey] = useState<SortKey>('age')
+  const [sortKey, setSortKey] = useState<SortKey>('opportunity')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
 
-  // Expanded row
+  // Tab
+  const [activeTab, setActiveTab] = useState<Tab>('loads')
+
+  // Expanded
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
-  // Tab
-  const [activeTab, setActiveTab] = useState<'search' | 'posted' | 'saved'>('search')
+  // Calling state
+  const [callingLoadId, setCallingLoadId] = useState<string | null>(null)
 
   const client = insforge
 
-  async function fetchData() {
-    const [loadsRes, spotRes] = await Promise.all([
+  const fetchData = useCallback(async () => {
+    const [loadsRes, spotRes, callRes, acceptedRes] = await Promise.all([
       client.database.from('loads').select().order('created_at', { ascending: false }),
       client.database.from('spot_rates').select(),
+      client.database.from('call_logs').select().order('created_at', { ascending: false }),
+      client.database.from('accepted_loads').select().order('created_at', { ascending: false }),
     ])
     setLoads((loadsRes.data || []) as Load[])
     setSpotRates((spotRes.data || []) as SpotRate[])
-  }
+    setCallLogs((callRes.data || []) as CallLog[])
+    setAcceptedLoads((acceptedRes.data || []) as AcceptedLoad[])
+  }, [client])
 
   useEffect(() => {
     fetchData().finally(() => setLoading(false))
-  }, [])
+  }, [fetchData])
+
+  // Poll for updates when on dispatching/pending tabs
+  useEffect(() => {
+    if (activeTab !== 'dispatching' && activeTab !== 'pending') return
+    const interval = setInterval(fetchData, 5000)
+    return () => clearInterval(interval)
+  }, [activeTab, fetchData])
 
   async function handleRefresh() {
     setRefreshing(true)
@@ -100,45 +122,58 @@ export default function LoadBoardPage() {
 
   function findSpot(load: Load): SpotRate | undefined {
     return spotRates.find(
-      (sr) =>
-        sr.origin_city === load.origin_city &&
-        sr.origin_state === load.origin_state &&
-        sr.dest_city === load.dest_city &&
-        sr.dest_state === load.dest_state &&
+      (sr) => sr.origin_city === load.origin_city && sr.origin_state === load.origin_state &&
+        sr.dest_city === load.dest_city && sr.dest_state === load.dest_state &&
         sr.equipment_type === load.equipment_type
     )
   }
 
+  // Calculate opportunity score: how far below spot the posted rate is (bigger = better deal for us)
+  function opportunityScore(load: Load): number {
+    const spot = findSpot(load)
+    if (!spot) return 0
+    return Number(spot.avg_rate) - Number(load.posted_rate)
+  }
+
   function handleSort(key: SortKey) {
-    if (sortKey === key) {
-      setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortKey(key)
-      setSortDir(key === 'rate' || key === 'rpm' ? 'desc' : 'asc')
+    if (sortKey === key) setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir(key === 'rate' || key === 'rpm' || key === 'opportunity' ? 'desc' : 'asc') }
+  }
+
+  async function handleCallBroker(loadId: string) {
+    setCallingLoadId(loadId)
+    try {
+      const res = await fetch('/api/dispatch-single', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ load_id: loadId }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        await fetchData()
+        setActiveTab('pending')
+      } else {
+        alert(data.error || 'Call failed')
+      }
+    } catch (err) {
+      alert('Failed to initiate call: ' + String(err))
+    } finally {
+      setCallingLoadId(null)
     }
   }
 
-  const filteredLoads = useMemo(() => {
-    let result = loads
-
-    if (showAvailableOnly) {
-      result = result.filter((l) => l.status === 'available')
-    }
+  // ── Filtered + sorted loads for "Load Board" tab ──
+  const availableLoads = useMemo(() => {
+    let result = loads.filter((l) => l.status === 'available')
 
     if (originFilter) {
       const q = originFilter.toLowerCase()
-      result = result.filter(
-        (l) => l.origin_city.toLowerCase().includes(q) || l.origin_state.toLowerCase().includes(q)
-      )
+      result = result.filter((l) => l.origin_city.toLowerCase().includes(q) || l.origin_state.toLowerCase().includes(q))
     }
-
     if (destFilter) {
       const q = destFilter.toLowerCase()
-      result = result.filter(
-        (l) => l.dest_city.toLowerCase().includes(q) || l.dest_state.toLowerCase().includes(q)
-      )
+      result = result.filter((l) => l.dest_city.toLowerCase().includes(q) || l.dest_state.toLowerCase().includes(q))
     }
-
     if (equipFilter !== 'All Equipment') {
       result = result.filter((l) => l.equipment_type === equipFilter)
     }
@@ -146,11 +181,10 @@ export default function LoadBoardPage() {
     result.sort((a, b) => {
       let cmp = 0
       switch (sortKey) {
-        case 'age': cmp = new Date(a.created_at).getTime() - new Date(b.created_at).getTime(); break
+        case 'opportunity': cmp = opportunityScore(a) - opportunityScore(b); break
         case 'trip': cmp = a.miles - b.miles; break
         case 'rate': cmp = Number(a.posted_rate) - Number(b.posted_rate); break
         case 'rpm': cmp = Number(a.rate_per_mile) - Number(b.rate_per_mile); break
-        case 'weight': cmp = a.weight - b.weight; break
         case 'pickup': cmp = new Date(a.pickup_date).getTime() - new Date(b.pickup_date).getTime(); break
         case 'origin': cmp = `${a.origin_city}${a.origin_state}`.localeCompare(`${b.origin_city}${b.origin_state}`); break
         case 'dest': cmp = `${a.dest_city}${a.dest_state}`.localeCompare(`${b.dest_city}${b.dest_state}`); break
@@ -159,11 +193,28 @@ export default function LoadBoardPage() {
       return sortDir === 'asc' ? cmp : -cmp
     })
     return result
-  }, [loads, originFilter, destFilter, equipFilter, showAvailableOnly, sortKey, sortDir])
+  }, [loads, originFilter, destFilter, equipFilter, sortKey, sortDir, spotRates])
 
-  function getAge(createdAt: string) {
+  // ── Dispatching loads (calls initiated but not yet in progress) ──
+  const dispatchingLoads = loads.filter((l) => l.status === 'dispatching')
+
+  // ── Pending calls (in_progress) ──
+  const pendingCalls = callLogs.filter((c) => c.outcome === 'in_progress' || c.outcome === 'pending')
+
+  // ── Confirmed/accepted ──
+  const confirmedCalls = callLogs.filter((c) => c.outcome === 'accepted')
+
+  // Tab counts
+  const tabCounts: Record<Tab, number> = {
+    loads: availableLoads.length,
+    dispatching: dispatchingLoads.length,
+    pending: pendingCalls.length,
+    confirmed: confirmedCalls.length,
+  }
+
+  function getAge(d: string) {
     try {
-      return formatDistanceToNowStrict(new Date(createdAt), { addSuffix: false })
+      return formatDistanceToNowStrict(new Date(d), { addSuffix: false })
         .replace(' seconds', 's').replace(' second', 's')
         .replace(' minutes', 'm').replace(' minute', 'm')
         .replace(' hours', 'h').replace(' hour', 'h')
@@ -177,20 +228,14 @@ export default function LoadBoardPage() {
       <th
         className={clsx(
           'px-3 py-2 text-[11px] font-bold uppercase tracking-wider cursor-pointer select-none transition-colors whitespace-nowrap text-left',
-          active ? 'text-[#2857E0]' : 'text-[#5a6872]',
-          'hover:text-[#2857E0]',
-          className
+          active ? 'text-[#2857E0]' : 'text-[#5a6872]', 'hover:text-[#2857E0]', className
         )}
         onClick={() => handleSort(sortId)}
         style={{ borderBottom: active ? `2px solid ${DAT_BLUE}` : '2px solid transparent' }}
       >
         <span className="inline-flex items-center gap-0.5">
           {label}
-          {active ? (
-            sortDir === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />
-          ) : (
-            <ArrowUpDown className="h-2.5 w-2.5 opacity-20" />
-          )}
+          {active ? (sortDir === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />) : <ArrowUpDown className="h-2.5 w-2.5 opacity-20" />}
         </span>
       </th>
     )
@@ -198,10 +243,10 @@ export default function LoadBoardPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96 bg-white rounded-xl">
+      <div className="min-h-screen bg-[#f0f2f5] flex items-center justify-center">
         <div className="text-center">
           <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-3" style={{ color: DAT_BLUE }} />
-          <p className="text-sm text-gray-500">Loading DAT One...</p>
+          <p className="text-sm text-[#5a6872]">Loading DAT One...</p>
         </div>
       </div>
     )
@@ -209,39 +254,15 @@ export default function LoadBoardPage() {
 
   return (
     <div className="min-h-screen bg-[#f0f2f5]">
-      {/* ===== TOP HEADER BAR ===== */}
+      {/* ═══ HEADER ═══ */}
       <div className="bg-white border-b border-[#d9dde1] shadow-sm">
         <div className="px-5 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <DATLogo />
-            {/* Tabs */}
-            <nav className="flex items-center gap-1 ml-4">
-              {(['search', 'posted', 'saved'] as const).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={clsx(
-                    'px-4 py-1.5 rounded-md text-sm font-semibold transition-colors',
-                    activeTab === tab
-                      ? 'text-white'
-                      : 'text-[#5a6872] hover:bg-[#f0f2f5]'
-                  )}
-                  style={activeTab === tab ? { backgroundColor: DAT_BLUE } : undefined}
-                >
-                  {tab === 'search' ? 'Search Loads' : tab === 'posted' ? 'My Posts' : 'Saved'}
-                </button>
-              ))}
-            </nav>
-          </div>
-
+          <DATLogo />
           <div className="flex items-center gap-3">
-            <span className="text-xs text-[#5a6872] font-medium">
-              {filteredLoads.length} results
-            </span>
             <button
               onClick={handleRefresh}
               disabled={refreshing}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-white text-xs font-semibold transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-white text-xs font-semibold disabled:opacity-50"
               style={{ backgroundColor: DAT_BLUE }}
             >
               <RefreshCw className={clsx('h-3.5 w-3.5', refreshing && 'animate-spin')} />
@@ -249,463 +270,409 @@ export default function LoadBoardPage() {
             </button>
           </div>
         </div>
-      </div>
 
-      {/* ===== SEARCH / FILTER BAR ===== */}
-      <div className="bg-white border-b border-[#d9dde1]">
-        <div className="px-5 py-3 flex items-end gap-3 flex-wrap">
-          {/* Origin */}
-          <div className="min-w-[180px]">
-            <label className="block text-[10px] font-bold text-[#5a6872] uppercase tracking-wider mb-1">
-              Origin
-            </label>
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#8d969e]" />
-              <input
-                type="text"
-                value={originFilter}
-                onChange={(e) => setOriginFilter(e.target.value)}
-                placeholder="City, State"
-                className="w-full pl-8 pr-8 py-2 rounded-md border border-[#c5cbd0] bg-white text-[#1a1a1a] text-sm placeholder-[#8d969e] focus:border-[#2857E0] focus:ring-1 focus:ring-[#2857E0]/20 focus:outline-none"
-              />
-              {originFilter && (
-                <button onClick={() => setOriginFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2">
-                  <X className="h-3.5 w-3.5 text-[#8d969e] hover:text-[#1a1a1a]" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Arrow */}
-          <div className="pb-2">
-            <ArrowRight className="h-4 w-4 text-[#8d969e]" />
-          </div>
-
-          {/* Destination */}
-          <div className="min-w-[180px]">
-            <label className="block text-[10px] font-bold text-[#5a6872] uppercase tracking-wider mb-1">
-              Destination
-            </label>
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#8d969e]" />
-              <input
-                type="text"
-                value={destFilter}
-                onChange={(e) => setDestFilter(e.target.value)}
-                placeholder="City, State"
-                className="w-full pl-8 pr-8 py-2 rounded-md border border-[#c5cbd0] bg-white text-[#1a1a1a] text-sm placeholder-[#8d969e] focus:border-[#2857E0] focus:ring-1 focus:ring-[#2857E0]/20 focus:outline-none"
-              />
-              {destFilter && (
-                <button onClick={() => setDestFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2">
-                  <X className="h-3.5 w-3.5 text-[#8d969e] hover:text-[#1a1a1a]" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Equipment */}
-          <div className="min-w-[160px]">
-            <label className="block text-[10px] font-bold text-[#5a6872] uppercase tracking-wider mb-1">
-              Equipment
-            </label>
-            <div className="relative">
-              <select
-                value={equipFilter}
-                onChange={(e) => setEquipFilter(e.target.value)}
-                className="w-full pl-3 pr-8 py-2 rounded-md border border-[#c5cbd0] bg-white text-[#1a1a1a] text-sm appearance-none focus:border-[#2857E0] focus:ring-1 focus:ring-[#2857E0]/20 focus:outline-none cursor-pointer"
-              >
-                {EQUIPMENT_TYPES.map((e) => (
-                  <option key={e} value={e}>{e}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#8d969e] pointer-events-none" />
-            </div>
-          </div>
-
-          {/* Available only toggle */}
-          <div className="pb-0.5">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={showAvailableOnly}
-                onChange={(e) => setShowAvailableOnly(e.target.checked)}
-                className="h-4 w-4 rounded border-[#c5cbd0] accent-[#2857E0]"
-              />
-              <span className="text-xs font-medium text-[#5a6872]">Available only</span>
-            </label>
-          </div>
-
-          {/* Search button */}
-          <button
-            onClick={handleRefresh}
-            className="px-5 py-2 rounded-md text-white text-sm font-semibold transition-colors hover:opacity-90"
-            style={{ backgroundColor: DAT_BLUE }}
-          >
-            Search
-          </button>
-
-          {/* Clear */}
-          {(originFilter || destFilter || equipFilter !== 'All Equipment') && (
+        {/* ═══ TABS ═══ */}
+        <div className="px-5 flex items-center gap-0 border-t border-[#ebedf0]">
+          {([
+            { id: 'loads' as Tab, label: 'Load Board', icon: Search },
+            { id: 'dispatching' as Tab, label: 'Contact Broker', icon: PhoneCall },
+            { id: 'pending' as Tab, label: 'Pending Calls', icon: Loader2 },
+            { id: 'confirmed' as Tab, label: 'Confirmed', icon: CheckCircle },
+          ]).map((tab) => (
             <button
-              onClick={() => { setOriginFilter(''); setDestFilter(''); setEquipFilter('All Equipment') }}
-              className="text-xs font-medium hover:underline pb-0.5"
-              style={{ color: DAT_BLUE }}
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={clsx(
+                'flex items-center gap-2 px-5 py-3 text-sm font-semibold transition-colors border-b-2 -mb-px',
+                activeTab === tab.id
+                  ? 'border-[#2857E0] text-[#2857E0]'
+                  : 'border-transparent text-[#5a6872] hover:text-[#1a1a1a]'
+              )}
             >
-              Clear all
+              <tab.icon className={clsx('h-4 w-4', activeTab === tab.id && tab.id === 'pending' && 'animate-spin')} />
+              {tab.label}
+              {tabCounts[tab.id] > 0 && (
+                <span
+                  className={clsx(
+                    'ml-1 rounded-full px-2 py-0.5 text-[10px] font-bold',
+                    activeTab === tab.id ? 'bg-[#2857E0] text-white' : 'bg-[#ebedf0] text-[#5a6872]'
+                  )}
+                >
+                  {tabCounts[tab.id]}
+                </span>
+              )}
             </button>
-          )}
+          ))}
         </div>
       </div>
 
-      {/* ===== DATA TABLE ===== */}
-      <div className="mx-3 mt-3">
-        <div className="bg-white rounded-lg shadow-sm border border-[#d9dde1] overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-[#f7f8fa] border-b border-[#d9dde1]">
-                  <SortHeader label="Age" sortId="age" className="pl-4" />
-                  <SortHeader label="Trip" sortId="trip" />
-                  <SortHeader label="Origin" sortId="origin" />
-                  <th className="px-1 py-2 text-[#8d969e]" />
-                  <SortHeader label="Destination" sortId="dest" />
-                  <SortHeader label="FP/Rate" sortId="rate" />
-                  <SortHeader label="$/Mi" sortId="rpm" />
-                  <th className="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-[#5a6872] text-left whitespace-nowrap">
-                    Mkt Rate
-                  </th>
-                  <th className="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-[#5a6872] text-left whitespace-nowrap">
-                    Equip
-                  </th>
-                  <SortHeader label="Wt" sortId="weight" />
-                  <SortHeader label="Pickup" sortId="pickup" />
-                  <SortHeader label="Company" sortId="company" />
-                  <th className="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-[#5a6872] text-left pr-4 whitespace-nowrap">
-                    Contact
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredLoads.length === 0 ? (
-                  <tr>
-                    <td colSpan={13} className="text-center py-16">
-                      <Search className="h-10 w-10 mx-auto mb-3 text-[#c5cbd0]" />
-                      <p className="text-sm font-medium text-[#5a6872]">No loads match your search</p>
-                      <p className="text-xs text-[#8d969e] mt-1">Try adjusting your filters</p>
-                    </td>
-                  </tr>
-                ) : (
-                  filteredLoads.map((load, idx) => {
-                    const spot = findSpot(load)
-                    const isExpanded = expandedId === load.id
-
-                    return (
-                      <LoadRow
-                        key={load.id}
-                        load={load}
-                        spot={spot}
-                        idx={idx}
-                        isExpanded={isExpanded}
-                        onToggle={() => setExpandedId(isExpanded ? null : load.id)}
-                        getAge={getAge}
-                      />
-                    )
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Footer */}
-          <div className="bg-[#f7f8fa] border-t border-[#d9dde1] px-4 py-2 flex items-center justify-between text-xs text-[#5a6872]">
-            <span className="font-medium">
-              Showing {filteredLoads.length} of {loads.length} loads
-            </span>
-            <span>
-              Updated {format(new Date(), 'h:mm a')}
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function LoadRow({
-  load, spot, idx, isExpanded, onToggle, getAge,
-}: {
-  load: Load
-  spot: SpotRate | undefined
-  idx: number
-  isExpanded: boolean
-  onToggle: () => void
-  getAge: (d: string) => string
-}) {
-  const posted = Number(load.posted_rate)
-  const rpm = Number(load.rate_per_mile)
-  const spotAvg = spot ? Number(spot.avg_rate) : null
-  const spotHigh = spot ? Number(spot.high_rate) : null
-
-  // Rate color: green = above high, amber = above avg, red = below avg
-  let rateClass = 'text-[#1a1a1a]'
-  if (spotAvg !== null && spotHigh !== null) {
-    if (posted >= spotHigh) rateClass = 'text-[#0d7c3d]'
-    else if (posted >= spotAvg) rateClass = 'text-[#b35c00]'
-    else rateClass = 'text-[#c4302b]'
-  }
-
-  // Equipment short code
-  const equipCode: Record<string, string> = {
-    'Dry Van': 'V', Reefer: 'R', Flatbed: 'F', 'Step Deck': 'SD', 'Power Only': 'PO',
-  }
-
-  return (
-    <>
-      <tr
-        onClick={onToggle}
-        className={clsx(
-          'cursor-pointer transition-colors border-b border-[#ebedf0]',
-          isExpanded
-            ? 'bg-[#e8eef8]'
-            : idx % 2 === 0
-            ? 'bg-white hover:bg-[#f0f4ff]'
-            : 'bg-[#f7f8fa] hover:bg-[#f0f4ff]'
-        )}
-      >
-        {/* Age */}
-        <td className="px-3 py-2.5 pl-4 whitespace-nowrap">
-          <span className="inline-flex items-center gap-1 text-xs text-[#5a6872]">
-            <Clock className="h-3 w-3 text-[#8d969e]" />
-            {getAge(load.created_at)}
-          </span>
-        </td>
-
-        {/* Trip */}
-        <td className="px-3 py-2.5 whitespace-nowrap">
-          <span className="font-semibold text-[#1a1a1a]">{load.miles}</span>
-          <span className="text-[#8d969e] text-xs ml-0.5">mi</span>
-        </td>
-
-        {/* Origin */}
-        <td className="px-3 py-2.5 whitespace-nowrap">
-          <div>
-            <span className="font-semibold text-[#1a1a1a]">{load.origin_city}</span>
-            <span className="text-[#5a6872] ml-1">{load.origin_state}</span>
-          </div>
-        </td>
-
-        {/* Arrow */}
-        <td className="px-1 py-2.5">
-          <ArrowRight className="h-3 w-3 text-[#c5cbd0]" />
-        </td>
-
-        {/* Destination */}
-        <td className="px-3 py-2.5 whitespace-nowrap">
-          <div>
-            <span className="font-semibold text-[#1a1a1a]">{load.dest_city}</span>
-            <span className="text-[#5a6872] ml-1">{load.dest_state}</span>
-          </div>
-        </td>
-
-        {/* Rate */}
-        <td className="px-3 py-2.5 whitespace-nowrap">
-          <span className={clsx('font-bold text-[15px]', rateClass)}>
-            ${posted.toLocaleString()}
-          </span>
-        </td>
-
-        {/* $/Mile */}
-        <td className="px-3 py-2.5 whitespace-nowrap">
-          <span className={clsx('font-semibold text-sm', rateClass)}>
-            ${rpm.toFixed(2)}
-          </span>
-        </td>
-
-        {/* Market Rate */}
-        <td className="px-3 py-2.5 whitespace-nowrap">
-          {spot ? (
-            <MktBadge posted={posted} spot={spot} />
-          ) : (
-            <span className="text-[#c5cbd0] text-xs">--</span>
-          )}
-        </td>
-
-        {/* Equipment */}
-        <td className="px-3 py-2.5 whitespace-nowrap">
-          <span
-            className="inline-flex items-center justify-center rounded font-bold text-[11px] px-2 py-0.5 text-white"
-            style={{ backgroundColor: load.equipment_type === 'Reefer' ? '#0d7c3d' : load.equipment_type === 'Flatbed' ? '#b35c00' : DAT_BLUE }}
-          >
-            {equipCode[load.equipment_type] || 'V'}
-          </span>
-        </td>
-
-        {/* Weight */}
-        <td className="px-3 py-2.5 whitespace-nowrap text-[#5a6872] text-sm">
-          {load.weight ? `${(load.weight / 1000).toFixed(0)}k` : '--'}
-        </td>
-
-        {/* Pickup */}
-        <td className="px-3 py-2.5 whitespace-nowrap text-[#5a6872] text-sm">
-          {format(new Date(load.pickup_date), 'MM/dd')}
-        </td>
-
-        {/* Company */}
-        <td className="px-3 py-2.5 whitespace-nowrap">
-          <div className="flex items-center gap-1">
-            <span className="font-medium text-sm" style={{ color: DAT_BLUE }}>{load.broker_name}</span>
-            <Star className="h-3 w-3 text-[#f5a623] fill-[#f5a623]" />
-          </div>
-        </td>
-
-        {/* Contact */}
-        <td className="px-3 py-2.5 pr-4 whitespace-nowrap">
-          <a
-            href={`tel:${load.broker_phone}`}
-            onClick={(e) => e.stopPropagation()}
-            className="inline-flex items-center gap-1 text-xs font-medium rounded-md px-2.5 py-1 transition-colors text-white"
-            style={{ backgroundColor: '#0d7c3d' }}
-          >
-            <Phone className="h-3 w-3" />
-            Call
-          </a>
-        </td>
-      </tr>
-
-      {/* Expanded detail */}
-      {isExpanded && (
-        <tr className="border-b border-[#d9dde1]">
-          <td colSpan={13} className="p-0">
-            <div className="bg-[#f0f4ff] border-l-4 px-6 py-4" style={{ borderLeftColor: DAT_BLUE }}>
-              <div className="grid grid-cols-3 gap-8">
-                {/* Load Details */}
-                <div>
-                  <h4 className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: DAT_BLUE }}>
-                    Load Details
-                  </h4>
-                  <div className="space-y-2 text-sm">
-                    <Row label="Lane" value={`${load.origin_city}, ${load.origin_state} \u2192 ${load.dest_city}, ${load.dest_state}`} />
-                    <Row label="Distance" value={`${load.miles} mi`} />
-                    <Row label="Equipment" value={load.equipment_type} />
-                    <Row label="Weight" value={load.weight ? `${load.weight.toLocaleString()} lbs` : 'N/A'} />
-                    <Row label="Pickup Date" value={format(new Date(load.pickup_date), 'EEE, MMM d, yyyy')} />
-                    <Row label="Source" value={load.source || 'DAT'} />
-                  </div>
-                </div>
-
-                {/* Rate Details */}
-                <div>
-                  <h4 className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: DAT_BLUE }}>
-                    Rate Information
-                  </h4>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-[#5a6872]">Posted Rate</span>
-                      <span className="font-bold text-[#0d7c3d] text-base">${posted.toLocaleString()}</span>
-                    </div>
-                    <Row label="Rate/Mile" value={`$${rpm.toFixed(2)}/mi`} />
-                    {spot && (
-                      <>
-                        <div className="border-t border-[#d9dde1] pt-2 mt-2" />
-                        <Row label="Market Avg" value={`$${Number(spot.avg_rate).toLocaleString()}`} />
-                        <Row label="Market High" value={`$${Number(spot.high_rate).toLocaleString()}`} />
-                        <Row label="Market Low" value={`$${Number(spot.low_rate).toLocaleString()}`} />
-                        <div className="flex justify-between">
-                          <span className="text-[#5a6872]">vs Market</span>
-                          <span className={clsx('font-bold', posted >= Number(spot.avg_rate) ? 'text-[#0d7c3d]' : 'text-[#c4302b]')}>
-                            {posted >= Number(spot.avg_rate) ? '+' : ''}${(posted - Number(spot.avg_rate)).toFixed(0)}
-                          </span>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Company Info */}
-                <div>
-                  <h4 className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: DAT_BLUE }}>
-                    Company
-                  </h4>
-                  <div className="space-y-2 text-sm">
-                    <Row label="Broker" value={load.broker_name} valueStyle={{ color: DAT_BLUE, fontWeight: 600 }} />
-                    <div className="flex justify-between">
-                      <span className="text-[#5a6872]">Phone</span>
-                      <a href={`tel:${load.broker_phone}`} className="font-medium" style={{ color: DAT_BLUE }}>
-                        {load.broker_phone}
-                      </a>
-                    </div>
-                    <Row label="Credit Score" value="94/100" />
-                    <Row label="Avg Days to Pay" value="28 days" />
-                    <div className="flex items-center gap-1 mt-1">
-                      {[1, 2, 3, 4].map((i) => (
-                        <Star key={i} className="h-3.5 w-3.5 text-[#f5a623] fill-[#f5a623]" />
-                      ))}
-                      <Star className="h-3.5 w-3.5 text-[#d9dde1]" />
-                      <span className="text-xs text-[#5a6872] ml-1">4.0</span>
-                    </div>
-                  </div>
-                  <div className="mt-4 flex gap-2">
-                    <a
-                      href={`tel:${load.broker_phone}`}
-                      className="flex-1 flex items-center justify-center gap-1.5 rounded-md px-3 py-2.5 text-sm font-bold text-white transition-colors hover:opacity-90"
-                      style={{ backgroundColor: '#0d7c3d' }}
-                    >
-                      <Phone className="h-4 w-4" />
-                      Call Broker
-                    </a>
-                    <button
-                      className="flex items-center justify-center gap-1.5 rounded-md border-2 px-3 py-2.5 text-sm font-bold transition-colors hover:opacity-90"
-                      style={{ borderColor: DAT_BLUE, color: DAT_BLUE }}
-                    >
-                      <Star className="h-4 w-4" />
-                      Save
-                    </button>
-                  </div>
+      {/* ═══ TAB CONTENT ═══ */}
+      {activeTab === 'loads' && (
+        <>
+          {/* Search bar */}
+          <div className="bg-white border-b border-[#d9dde1]">
+            <div className="px-5 py-3 flex items-end gap-3 flex-wrap">
+              <div className="min-w-[180px]">
+                <label className="block text-[10px] font-bold text-[#5a6872] uppercase tracking-wider mb-1">Origin</label>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#8d969e]" />
+                  <input type="text" value={originFilter} onChange={(e) => setOriginFilter(e.target.value)}
+                    placeholder="City, State"
+                    className="w-full pl-8 pr-8 py-2 rounded-md border border-[#c5cbd0] bg-white text-[#1a1a1a] text-sm placeholder-[#8d969e] focus:border-[#2857E0] focus:ring-1 focus:ring-[#2857E0]/20 focus:outline-none" />
+                  {originFilter && <button onClick={() => setOriginFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2"><X className="h-3.5 w-3.5 text-[#8d969e] hover:text-[#1a1a1a]" /></button>}
                 </div>
               </div>
+              <div className="pb-2"><ArrowRight className="h-4 w-4 text-[#8d969e]" /></div>
+              <div className="min-w-[180px]">
+                <label className="block text-[10px] font-bold text-[#5a6872] uppercase tracking-wider mb-1">Destination</label>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#8d969e]" />
+                  <input type="text" value={destFilter} onChange={(e) => setDestFilter(e.target.value)}
+                    placeholder="City, State"
+                    className="w-full pl-8 pr-8 py-2 rounded-md border border-[#c5cbd0] bg-white text-[#1a1a1a] text-sm placeholder-[#8d969e] focus:border-[#2857E0] focus:ring-1 focus:ring-[#2857E0]/20 focus:outline-none" />
+                  {destFilter && <button onClick={() => setDestFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2"><X className="h-3.5 w-3.5 text-[#8d969e] hover:text-[#1a1a1a]" /></button>}
+                </div>
+              </div>
+              <div className="min-w-[160px]">
+                <label className="block text-[10px] font-bold text-[#5a6872] uppercase tracking-wider mb-1">Equipment</label>
+                <div className="relative">
+                  <select value={equipFilter} onChange={(e) => setEquipFilter(e.target.value)}
+                    className="w-full pl-3 pr-8 py-2 rounded-md border border-[#c5cbd0] bg-white text-[#1a1a1a] text-sm appearance-none focus:border-[#2857E0] focus:outline-none cursor-pointer">
+                    {EQUIPMENT_TYPES.map((e) => <option key={e} value={e}>{e}</option>)}
+                  </select>
+                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#8d969e] pointer-events-none" />
+                </div>
+              </div>
+              {(originFilter || destFilter || equipFilter !== 'All Equipment') && (
+                <button onClick={() => { setOriginFilter(''); setDestFilter(''); setEquipFilter('All Equipment') }}
+                  className="text-xs font-medium hover:underline pb-0.5" style={{ color: DAT_BLUE }}>
+                  Clear all
+                </button>
+              )}
             </div>
-          </td>
-        </tr>
-      )}
-    </>
-  )
-}
+          </div>
 
-function Row({ label, value, valueStyle }: { label: string; value: string; valueStyle?: React.CSSProperties }) {
-  return (
-    <div className="flex justify-between">
-      <span className="text-[#5a6872]">{label}</span>
-      <span className="font-medium text-[#1a1a1a]" style={valueStyle}>{value}</span>
+          {/* Load table */}
+          <div className="mx-3 mt-3">
+            <div className="bg-white rounded-lg shadow-sm border border-[#d9dde1] overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-[#f7f8fa] border-b border-[#d9dde1]">
+                      <SortHeader label="Opportunity" sortId="opportunity" className="pl-4" />
+                      <SortHeader label="Trip" sortId="trip" />
+                      <SortHeader label="Origin" sortId="origin" />
+                      <th className="px-1 py-2" />
+                      <SortHeader label="Destination" sortId="dest" />
+                      <SortHeader label="Posted Rate" sortId="rate" />
+                      <SortHeader label="$/Mi" sortId="rpm" />
+                      <th className="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-[#5a6872] text-left">Spot Avg</th>
+                      <th className="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-[#5a6872] text-left">Equip</th>
+                      <SortHeader label="Pickup" sortId="pickup" />
+                      <SortHeader label="Broker" sortId="company" />
+                      <th className="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-[#5a6872] text-left pr-4">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {availableLoads.length === 0 ? (
+                      <tr><td colSpan={12} className="text-center py-16">
+                        <Search className="h-10 w-10 mx-auto mb-3 text-[#c5cbd0]" />
+                        <p className="text-sm font-medium text-[#5a6872]">No available loads</p>
+                      </td></tr>
+                    ) : (
+                      availableLoads.map((load, idx) => {
+                        const spot = findSpot(load)
+                        const opp = opportunityScore(load)
+                        const posted = Number(load.posted_rate)
+                        const spotAvg = spot ? Number(spot.avg_rate) : null
+
+                        let rateClass = 'text-[#1a1a1a]'
+                        if (spotAvg !== null) {
+                          rateClass = posted < spotAvg ? 'text-[#0d7c3d]' : posted > spotAvg ? 'text-[#c4302b]' : 'text-[#b35c00]'
+                        }
+
+                        return (
+                          <tr key={load.id}
+                            className={clsx(
+                              'border-b border-[#ebedf0] transition-colors',
+                              idx % 2 === 0 ? 'bg-white' : 'bg-[#f7f8fa]',
+                              'hover:bg-[#f0f4ff]'
+                            )}
+                          >
+                            {/* Opportunity score */}
+                            <td className="px-3 py-2.5 pl-4 whitespace-nowrap">
+                              {opp > 0 ? (
+                                <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold bg-[#e6f5ec] text-[#0d7c3d]">
+                                  <TrendingDown className="h-3 w-3" />
+                                  ${opp.toFixed(0)} below
+                                </span>
+                              ) : opp < 0 ? (
+                                <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold bg-[#fde8e8] text-[#c4302b]">
+                                  <TrendingUp className="h-3 w-3" />
+                                  ${Math.abs(opp).toFixed(0)} above
+                                </span>
+                              ) : (
+                                <span className="text-[#8d969e] text-xs">--</span>
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2.5 whitespace-nowrap">
+                              <span className="font-semibold text-[#1a1a1a]">{load.miles}</span>
+                              <span className="text-[#8d969e] text-xs ml-0.5">mi</span>
+                            </td>
+
+                            <td className="px-3 py-2.5 whitespace-nowrap">
+                              <span className="font-semibold text-[#1a1a1a]">{load.origin_city}</span>
+                              <span className="text-[#5a6872] ml-1">{load.origin_state}</span>
+                            </td>
+                            <td className="px-1 py-2.5"><ArrowRight className="h-3 w-3 text-[#c5cbd0]" /></td>
+                            <td className="px-3 py-2.5 whitespace-nowrap">
+                              <span className="font-semibold text-[#1a1a1a]">{load.dest_city}</span>
+                              <span className="text-[#5a6872] ml-1">{load.dest_state}</span>
+                            </td>
+
+                            <td className="px-3 py-2.5 whitespace-nowrap">
+                              <span className={clsx('font-bold text-[15px]', rateClass)}>${posted.toLocaleString()}</span>
+                            </td>
+                            <td className="px-3 py-2.5 whitespace-nowrap">
+                              <span className={clsx('font-semibold', rateClass)}>${Number(load.rate_per_mile).toFixed(2)}</span>
+                            </td>
+
+                            <td className="px-3 py-2.5 whitespace-nowrap text-[#5a6872]">
+                              {spotAvg ? `$${spotAvg.toLocaleString()}` : '--'}
+                            </td>
+
+                            <td className="px-3 py-2.5 whitespace-nowrap">
+                              <span className="inline-flex items-center justify-center rounded font-bold text-[11px] px-2 py-0.5 text-white"
+                                style={{ backgroundColor: EQUIP_COLOR[load.equipment_type] || DAT_BLUE }}>
+                                {EQUIP_CODE[load.equipment_type] || 'V'}
+                              </span>
+                            </td>
+
+                            <td className="px-3 py-2.5 whitespace-nowrap text-[#5a6872] text-sm">
+                              {format(new Date(load.pickup_date), 'MM/dd')}
+                            </td>
+
+                            <td className="px-3 py-2.5 whitespace-nowrap">
+                              <span className="font-medium text-sm" style={{ color: DAT_BLUE }}>{load.broker_name}</span>
+                            </td>
+
+                            <td className="px-3 py-2.5 pr-4 whitespace-nowrap">
+                              <button
+                                onClick={() => handleCallBroker(load.id)}
+                                disabled={callingLoadId === load.id}
+                                className="inline-flex items-center gap-1.5 text-xs font-bold rounded-md px-3 py-1.5 text-white transition-colors hover:opacity-90 disabled:opacity-50"
+                                style={{ backgroundColor: '#0d7c3d' }}
+                              >
+                                {callingLoadId === load.id ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <Zap className="h-3 w-3" />
+                                )}
+                                {callingLoadId === load.id ? 'Calling...' : 'Call Broker'}
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <TableFooter count={availableLoads.length} total={loads.length} label="available loads" />
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ═══ CONTACT BROKER / DISPATCHING TAB ═══ */}
+      {activeTab === 'dispatching' && (
+        <div className="mx-3 mt-3">
+          <div className="bg-white rounded-lg shadow-sm border border-[#d9dde1] overflow-hidden">
+            {dispatchingLoads.length === 0 ? (
+              <EmptyState icon={PhoneCall} title="No loads being contacted" subtitle="Select loads from the Load Board and click Call Broker" />
+            ) : (
+              <div className="divide-y divide-[#ebedf0]">
+                {dispatchingLoads.map((load) => {
+                  const spot = findSpot(load)
+                  const callLog = callLogs.find((c) => c.load_id === load.id)
+                  return (
+                    <div key={load.id} className="px-5 py-4 flex items-center justify-between hover:bg-[#f7f8fa] transition-colors">
+                      <div className="flex items-center gap-4">
+                        <div className="h-10 w-10 rounded-full flex items-center justify-center" style={{ backgroundColor: '#fff3e0' }}>
+                          <PhoneCall className="h-5 w-5 text-[#b35c00]" />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-[#1a1a1a]">
+                            {load.origin_city}, {load.origin_state} <ArrowRight className="h-3 w-3 inline text-[#8d969e]" /> {load.dest_city}, {load.dest_state}
+                          </p>
+                          <p className="text-xs text-[#5a6872] mt-0.5">
+                            {load.broker_name} &middot; {load.equipment_type} &middot; {load.miles} mi
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-6">
+                        <div className="text-right">
+                          <p className="font-bold text-[#1a1a1a]">${Number(load.posted_rate).toLocaleString()}</p>
+                          <p className="text-xs text-[#5a6872]">
+                            Spot: {spot ? `$${Number(spot.avg_rate).toLocaleString()}` : '--'}
+                          </p>
+                        </div>
+                        <div>
+                          <span className={clsx(
+                            'inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold',
+                            callLog?.outcome === 'in_progress' ? 'bg-[#fff3e0] text-[#b35c00]' : 'bg-[#ebedf0] text-[#5a6872]'
+                          )}>
+                            {callLog?.outcome === 'in_progress' ? (
+                              <><Loader2 className="h-3 w-3 animate-spin" /> On Call</>
+                            ) : (
+                              <><Clock className="h-3 w-3" /> {callLog?.outcome || 'Queued'}</>
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            <TableFooter count={dispatchingLoads.length} total={dispatchingLoads.length} label="loads being contacted" />
+          </div>
+        </div>
+      )}
+
+      {/* ═══ PENDING CALLS TAB ═══ */}
+      {activeTab === 'pending' && (
+        <div className="mx-3 mt-3">
+          <div className="bg-white rounded-lg shadow-sm border border-[#d9dde1] overflow-hidden">
+            {pendingCalls.length === 0 ? (
+              <EmptyState icon={Loader2} title="No pending calls" subtitle="Calls in progress will appear here" />
+            ) : (
+              <div className="divide-y divide-[#ebedf0]">
+                {pendingCalls.map((call) => {
+                  const load = loads.find((l) => l.id === call.load_id)
+                  return (
+                    <div key={call.id} className="px-5 py-4 flex items-center justify-between hover:bg-[#f7f8fa] transition-colors">
+                      <div className="flex items-center gap-4">
+                        <div className="h-10 w-10 rounded-full flex items-center justify-center bg-[#fff3e0]">
+                          <Loader2 className="h-5 w-5 text-[#b35c00] animate-spin" />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-[#1a1a1a]">
+                            {load ? `${load.origin_city}, ${load.origin_state}` : '...'} <ArrowRight className="h-3 w-3 inline text-[#8d969e]" /> {load ? `${load.dest_city}, ${load.dest_state}` : '...'}
+                          </p>
+                          <p className="text-xs text-[#5a6872] mt-0.5">
+                            {load?.broker_name} &middot; Strategy: <span className={clsx('font-bold', call.strategy === 'accept' ? 'text-[#0d7c3d]' : 'text-[#b35c00]')}>{call.strategy}</span>
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-6">
+                        <div className="text-right">
+                          <p className="text-xs text-[#5a6872]">Offered</p>
+                          <p className="font-bold text-[#1a1a1a]">${Number(call.offered_rate).toLocaleString()}</p>
+                        </div>
+                        {call.counter_offer_rate && (
+                          <div className="text-right">
+                            <p className="text-xs text-[#5a6872]">Counter</p>
+                            <p className="font-bold text-[#b35c00]">${Number(call.counter_offer_rate).toLocaleString()}</p>
+                          </div>
+                        )}
+                        <div>
+                          <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold bg-[#fff3e0] text-[#b35c00]">
+                            <Phone className="h-3 w-3" />
+                            {call.outcome === 'in_progress' ? 'Active Call' : 'Initiating...'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            <TableFooter count={pendingCalls.length} total={pendingCalls.length} label="pending calls" />
+          </div>
+        </div>
+      )}
+
+      {/* ═══ CONFIRMED TAB ═══ */}
+      {activeTab === 'confirmed' && (
+        <div className="mx-3 mt-3">
+          <div className="bg-white rounded-lg shadow-sm border border-[#d9dde1] overflow-hidden">
+            {confirmedCalls.length === 0 ? (
+              <EmptyState icon={CheckCircle} title="No confirmed loads yet" subtitle="Loads confirmed by brokers will appear here" />
+            ) : (
+              <div className="divide-y divide-[#ebedf0]">
+                {confirmedCalls.map((call) => {
+                  const load = loads.find((l) => l.id === call.load_id)
+                  const spot = load ? findSpot(load) : undefined
+                  const savings = spot && call.final_rate ? Number(spot.avg_rate) - Number(call.final_rate) : null
+
+                  return (
+                    <div key={call.id} className="px-5 py-4 hover:bg-[#f7f8fa] transition-colors">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="h-10 w-10 rounded-full flex items-center justify-center bg-[#e6f5ec]">
+                            <CheckCircle className="h-5 w-5 text-[#0d7c3d]" />
+                          </div>
+                          <div>
+                            <p className="font-semibold text-[#1a1a1a]">
+                              {load ? `${load.origin_city}, ${load.origin_state}` : '...'} <ArrowRight className="h-3 w-3 inline text-[#8d969e]" /> {load ? `${load.dest_city}, ${load.dest_state}` : '...'}
+                            </p>
+                            <p className="text-xs text-[#5a6872] mt-0.5">
+                              {load?.broker_name} &middot; {load?.equipment_type} &middot; {load?.miles} mi
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-6">
+                          <div className="text-right">
+                            <p className="text-xs text-[#5a6872]">Final Rate</p>
+                            <p className="font-bold text-[#0d7c3d] text-lg">${call.final_rate ? Number(call.final_rate).toLocaleString() : Number(call.offered_rate).toLocaleString()}</p>
+                          </div>
+                          {savings !== null && savings > 0 && (
+                            <div className="text-right">
+                              <p className="text-xs text-[#5a6872]">Saved</p>
+                              <p className="font-bold text-[#0d7c3d]">${savings.toFixed(0)}</p>
+                            </div>
+                          )}
+                          <span className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold bg-[#e6f5ec] text-[#0d7c3d]">
+                            <CheckCircle className="h-3 w-3" />
+                            Confirmed
+                          </span>
+                        </div>
+                      </div>
+                      {call.summary && (
+                        <p className="mt-2 ml-14 text-xs text-[#5a6872] bg-[#f7f8fa] rounded-md px-3 py-2 italic">
+                          &quot;{call.summary}&quot;
+                        </p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            <TableFooter count={confirmedCalls.length} total={confirmedCalls.length} label="confirmed loads" />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-function MktBadge({ posted, spot }: { posted: number; spot: SpotRate }) {
-  const avg = Number(spot.avg_rate)
-  const high = Number(spot.high_rate)
-  const diff = posted - avg
-  const pct = avg > 0 ? ((diff / avg) * 100).toFixed(0) : '0'
-  const sign = diff >= 0 ? '+' : ''
-
-  let bgColor = '#fde8e8'
-  let textColor = '#c4302b'
-  let arrow = '\u25BC'
-  if (posted >= high) {
-    bgColor = '#e6f5ec'
-    textColor = '#0d7c3d'
-    arrow = '\u25B2'
-  } else if (posted >= avg) {
-    bgColor = '#fff3e0'
-    textColor = '#b35c00'
-    arrow = '\u25B2'
-  }
-
+function TableFooter({ count, total, label }: { count: number; total: number; label: string }) {
   return (
-    <span
-      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold"
-      style={{ backgroundColor: bgColor, color: textColor }}
-    >
-      {arrow} {sign}{pct}%
-    </span>
+    <div className="bg-[#f7f8fa] border-t border-[#d9dde1] px-4 py-2 flex items-center justify-between text-xs text-[#5a6872]">
+      <span className="font-medium">{count} {label}</span>
+      <span>Updated {format(new Date(), 'h:mm a')}</span>
+    </div>
+  )
+}
+
+function EmptyState({ icon: Icon, title, subtitle }: { icon: React.ElementType; title: string; subtitle: string }) {
+  return (
+    <div className="text-center py-16">
+      <Icon className="h-10 w-10 mx-auto mb-3 text-[#c5cbd0]" />
+      <p className="text-sm font-medium text-[#5a6872]">{title}</p>
+      <p className="text-xs text-[#8d969e] mt-1">{subtitle}</p>
+    </div>
   )
 }
