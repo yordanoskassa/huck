@@ -2,12 +2,20 @@
 
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
 import { insforge } from '@/lib/insforge-browser'
-import { clsx } from 'clsx'
+import { cn } from '@/lib/utils'
 import type { Load, SpotRate, CallLog, Driver, AcceptedLoad } from '@/lib/types'
 import { format } from 'date-fns'
-import LogoutButton from '@/components/logout-button'
-import { formatUserGreeting } from '@/lib/user-greeting'
+import { AppShell } from '@/components/shell/app-shell'
+import { StatCard } from '@/components/common/stat-card'
+import { EmptyState } from '@/components/common/empty-state'
+import { StatusBadge, StrategyBadge } from '@/components/common/status-badge'
+import { Gauge } from '@/components/charts/gauge'
+import { Card, CardContent, CardHeader, CardTitle, CardAction } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   ArrowRight,
   Phone,
@@ -23,67 +31,53 @@ import {
   ChevronDown,
   ChevronUp,
   X,
-  Clock,
   Volume2,
   AlertCircle,
-  MessageSquare,
   Sparkles,
   Truck,
   User,
   Camera,
   MapPin,
-  Gauge,
   BarChart3,
   Users,
   Package,
   ChevronRight,
   Trash2,
+  DollarSign,
+  Activity,
 } from 'lucide-react'
 
 const HuckFleetMap = dynamic(() => import('@/components/huck-fleet-map'), {
   ssr: false,
   loading: () => (
-    <div className="h-[380px] rounded-xl border border-white/10 bg-white/5 flex items-center justify-center">
-      <Loader2 className="h-5 w-5 animate-spin text-gray-500" />
+    <div className="flex h-[380px] items-center justify-center rounded-lg border border-border bg-card/40">
+      <Loader2 className="size-5 animate-spin text-muted-foreground" />
     </div>
   ),
 })
-
-type Tab = 'listings' | 'negotiating' | 'confirmed'
 
 const EQUIP_CODE: Record<string, string> = {
   'Dry Van': 'V', Reefer: 'R', Flatbed: 'F', 'Step Deck': 'SD', 'Power Only': 'PO',
 }
 
-export default function HuckPage() {
+export default function DashboardPage() {
   const [loads, setLoads] = useState<Load[]>([])
   const [drivers, setDrivers] = useState<Driver[]>([])
   const [spotRates, setSpotRates] = useState<SpotRate[]>([])
   const [callLogs, setCallLogs] = useState<CallLog[]>([])
   const [acceptedLoads, setAcceptedLoads] = useState<AcceptedLoad[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<Tab>('listings')
+  const [activeTab, setActiveTab] = useState('listings')
   const [callingLoadId, setCallingLoadId] = useState<string | null>(null)
   const [expandedCallId, setExpandedCallId] = useState<string | null>(null)
   const [sessionDispatchedIds, setSessionDispatchedIds] = useState<Set<string>>(new Set())
   const [summarizingId, setSummarizingId] = useState<string | null>(null)
   const [callError, setCallError] = useState<string | null>(null)
-  const [userName, setUserName] = useState<string | null>(null)
   const [ranking, setRanking] = useState(false)
   const [ranked, setRanked] = useState(false)
   const [showDriverPanel, setShowDriverPanel] = useState(false)
   const [highlightedLoadId, setHighlightedLoadId] = useState<string | null>(null)
   const [clearing, setClearing] = useState(false)
-
-  useEffect(() => {
-    insforge.auth.getCurrentUser().then(({ data }) => {
-      if (data?.user) {
-        const u = data.user
-        const name = u.profile?.name || (u.metadata as Record<string, unknown>)?.name || (u.metadata as Record<string, unknown>)?.full_name || u.email?.split('@')[0] || null
-        setUserName(name as string | null)
-      }
-    })
-  }, [])
 
   const fetchData = useCallback(async () => {
     const [loadsRes, spotRes, callRes, driverRes, acceptedRes] = await Promise.all([
@@ -176,7 +170,7 @@ export default function HuckPage() {
         await fetchData()
         setActiveTab('negotiating')
       } else if (data.limit_reached) {
-        setCallError('VAPI free-number daily limit reached (10/day). It worked earlier — quota resets automatically.')
+        setCallError('VAPI free-number daily limit reached (10/day). Quota resets automatically.')
       } else {
         setCallError(data.error || 'Failed to initiate call')
       }
@@ -222,18 +216,13 @@ export default function HuckPage() {
   }
 
   async function handleClearDemo() {
-    if (!window.confirm('Clear all fleet, loads, calls, and deals? This resets the demo to a fresh state.')) {
-      return
-    }
+    if (!window.confirm('Clear all fleet, loads, calls, and deals? This resets the demo to a fresh state.')) return
     setClearing(true)
     setCallError(null)
     try {
       const res = await fetch('/api/clear-demo', { method: 'POST' })
       const data = await res.json()
-      if (!res.ok) {
-        setCallError(data.error || 'Failed to clear demo data')
-        return
-      }
+      if (!res.ok) { setCallError(data.error || 'Failed to clear demo data'); return }
       setRanked(false)
       setSessionDispatchedIds(new Set())
       setExpandedCallId(null)
@@ -264,12 +253,6 @@ export default function HuckPage() {
       && sessionDispatchedIds.has(c.load_id)
   )
 
-  const tabCounts: Record<Tab, number> = {
-    listings: availableLoads.length,
-    negotiating: negotiatingCalls.length + pendingReviewCalls.length,
-    confirmed: confirmedCalls.length,
-  }
-
   const totalRevenue = confirmedCalls.reduce((sum, c) => sum + Number(c.final_rate || c.offered_rate), 0)
   const avgSavings = confirmedCalls.length > 0
     ? confirmedCalls.reduce((sum, c) => {
@@ -284,734 +267,407 @@ export default function HuckPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="h-12 w-12 rounded-xl bg-emerald-600 flex items-center justify-center mx-auto mb-4 animate-pulse">
-            <Zap className="h-6 w-6 text-white" />
+      <AppShell title="Dashboard">
+        <div className="flex flex-1 items-center justify-center py-20">
+          <div className="text-center">
+            <div className="mx-auto mb-3 flex size-10 items-center justify-center rounded-md bg-primary animate-pulse">
+              <Zap className="size-5 text-primary-foreground" />
+            </div>
+            <p className="text-sm text-muted-foreground">Loading dashboard...</p>
           </div>
-          <p className="text-sm text-gray-500">Loading HUCK...</p>
         </div>
-      </div>
+      </AppShell>
     )
   }
 
   return (
-    <div className="min-h-screen">
-      {/* Header */}
-      <div className="border-b border-white/10 bg-white/[0.03]">
-        <div className="px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-600/20">
-              <Zap className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-black tracking-tight text-white">HUCK</h1>
-              <p className="text-[11px] text-gray-500 -mt-0.5">
-                {userName ? (
-                  <>
-                    <span className="text-emerald-400 font-semibold">{formatUserGreeting(userName)}</span>
-                    <span className="text-gray-700"> · </span>
-                    AI Freight Negotiator
-                  </>
-                ) : (
-                  'AI Freight Negotiator'
-                )}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <a href="/motive" className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors">
-              <Truck className="h-3 w-3" />
-              Motive
-            </a>
-            <a href="/loadboard" className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors">
-              <ExternalLink className="h-3 w-3" />
-              DAT Load Board
-            </a>
-            <a href="/upload" className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors">
-              <Camera className="h-3 w-3" />
-              Upload Screenshot
-            </a>
-            <a href="/huck-hackathon-flowchart.svg" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-emerald-400 transition-colors">
-              <BarChart3 className="h-3 w-3" />
-              Architecture
-            </a>
-            <button
-              type="button"
-              onClick={() => fetchData()}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-400 hover:text-gray-200 hover:bg-white/10 transition-colors"
-            >
-              <RefreshCw className="h-3 w-3" />
-              Refresh
-            </button>
-            <button
-              type="button"
-              onClick={handleClearDemo}
-              disabled={clearing}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-colors disabled:opacity-50"
-              title="Reset fleet, loads, and call history"
-            >
-              {clearing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-              Clear All
-            </button>
-            {userName && (
-              <div className="flex items-center gap-2 pl-2 border-l border-white/10">
-                <div className="h-7 w-7 rounded-full bg-emerald-500/20 flex items-center justify-center text-[10px] font-bold text-emerald-400">
-                  {userName.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()}
-                </div>
-                <span className="text-xs font-medium text-gray-400">{userName}</span>
-              </div>
-            )}
-            <LogoutButton
-              className="text-gray-500 hover:text-gray-300 hover:bg-white/10 border border-white/10"
-            />
-          </div>
+    <AppShell title="Dashboard">
+      {/* Action bar */}
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Link href="/loadboard">
+            <Button variant="outline" size="sm"><ExternalLink className="size-3.5" /> DAT</Button>
+          </Link>
+          <Link href="/motive">
+            <Button variant="outline" size="sm"><Truck className="size-3.5" /> Motive</Button>
+          </Link>
+          <Link href="/upload">
+            <Button variant="outline" size="sm"><Camera className="size-3.5" /> Vision Upload</Button>
+          </Link>
         </div>
-
-        {/* Tabs */}
-        <div className="px-6 flex items-center gap-0">
-          {([
-            { id: 'listings' as Tab, label: 'All Listings', icon: Zap },
-            { id: 'negotiating' as Tab, label: 'Negotiating', icon: PhoneCall },
-            { id: 'confirmed' as Tab, label: 'Confirmed', icon: CheckCircle },
-          ]).map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={clsx(
-                'flex items-center gap-2 px-5 py-3 text-sm font-semibold transition-colors border-b-2 -mb-px',
-                activeTab === tab.id
-                  ? 'border-emerald-500 text-emerald-400'
-                  : 'border-transparent text-gray-500 hover:text-gray-300'
-              )}
-            >
-              <tab.icon className={clsx('h-4 w-4', activeTab === tab.id && tab.id === 'negotiating' && negotiatingCalls.length > 0 && 'animate-pulse')} />
-              {tab.label}
-              {tabCounts[tab.id] > 0 && (
-                <span className={clsx(
-                  'ml-1 rounded-full px-2 py-0.5 text-[10px] font-bold',
-                  activeTab === tab.id ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-gray-500'
-                )}>
-                  {tabCounts[tab.id]}
-                </span>
-              )}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => fetchData()}>
+            <RefreshCw className="size-3.5" /> Refresh
+          </Button>
+          <Button variant="destructive" size="sm" onClick={handleClearDemo} disabled={clearing}>
+            {clearing ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+            Reset Demo
+          </Button>
         </div>
       </div>
 
       {/* Error banner */}
       {callError && (
-        <div className="mx-6 mt-4 bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
-            <p className="text-sm text-red-300">{callError}</p>
-          </div>
-          <button onClick={() => setCallError(null)} className="text-red-500 hover:text-red-300"><X className="h-4 w-4" /></button>
-        </div>
+        <Card className="mb-4 border-destructive/30 bg-destructive/5">
+          <CardContent className="flex items-center justify-between gap-3 py-3">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="size-4 text-destructive" />
+              <p className="text-sm text-destructive">{callError}</p>
+            </div>
+            <Button variant="ghost" size="icon-xs" onClick={() => setCallError(null)}>
+              <X className="size-3.5" />
+            </Button>
+          </CardContent>
+        </Card>
       )}
 
-      {/* ALL LISTINGS TAB */}
-      {activeTab === 'listings' && (
-        <div className="px-6 py-5">
-          {userName && (
-            <div className="mb-5 flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-bold text-white">{formatUserGreeting(userName)}</h2>
-                <p className="text-sm text-gray-500 mt-0.5">
-                  {drivers.length > 0
-                    ? `${drivers.length} drivers synced · ${availableLoads.length} loads ready to rank`
-                    : 'Sync fleet from Motive and loads from DAT to get started'}
-                </p>
-              </div>
-            </div>
-          )}
+      {/* Stats */}
+      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+        <StatCard label="Fleet" value={drivers.length} icon={Users} accent="info" />
+        <StatCard label="Available" value={availableLoads.length} icon={Package} />
+        <StatCard label="Below Spot" value={availableLoads.filter((l) => opportunityScore(l) > 0).length} icon={TrendingDown} accent="success" />
+        <StatCard label="Active Calls" value={negotiatingCalls.length} icon={Phone} accent="warning" />
+        <StatCard label="Deals" value={confirmedCalls.length} icon={CheckCircle} accent="success" />
+        <StatCard label="Close Rate" value={`${closeRate}%`} icon={BarChart3} accent="info" />
+      </div>
 
-          {/* Stats Row */}
-          <div className="grid grid-cols-6 gap-3 mb-5">
-            {[
-              { label: 'Fleet Drivers', value: drivers.length, icon: Users, color: 'text-blue-400' },
-              { label: 'Available Loads', value: availableLoads.length, icon: Package, color: 'text-white' },
-              { label: 'Below Spot', value: availableLoads.filter((l) => opportunityScore(l) > 0).length, icon: TrendingDown, color: 'text-emerald-400' },
-              { label: 'Active Calls', value: negotiatingCalls.length, icon: Phone, color: 'text-amber-400' },
-              { label: 'Deals Closed', value: confirmedCalls.length, icon: CheckCircle, color: 'text-emerald-400' },
-              { label: 'Close Rate', value: `${closeRate}%`, icon: BarChart3, color: 'text-blue-400' },
-            ].map((stat) => (
-              <div key={stat.label} className="bg-white/5 rounded-lg border border-white/10 px-4 py-3 flex items-center gap-3">
-                <stat.icon className={clsx('h-5 w-5', stat.color)} />
-                <div>
-                  <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">{stat.label}</p>
-                  <p className={clsx('text-2xl font-black', stat.color)}>{stat.value}</p>
-                </div>
-              </div>
-            ))}
-          </div>
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as string)}>
+        <TabsList variant="line" className="mb-4">
+          <TabsTrigger value="listings">
+            <Zap className="size-3.5" />
+            Listings
+            {availableLoads.length > 0 && (
+              <Badge variant="secondary" className="ml-1 text-[10px]">{availableLoads.length}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="negotiating">
+            <PhoneCall className={cn('size-3.5', negotiatingCalls.length > 0 && 'animate-pulse')} />
+            Negotiating
+            {(negotiatingCalls.length + pendingReviewCalls.length) > 0 && (
+              <Badge variant="secondary" className="ml-1 text-[10px]">{negotiatingCalls.length + pendingReviewCalls.length}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="confirmed">
+            <CheckCircle className="size-3.5" />
+            Confirmed
+            {confirmedCalls.length > 0 && (
+              <Badge variant="secondary" className="ml-1 text-[10px]">{confirmedCalls.length}</Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
 
-          {/* Live Fleet Map */}
-          {drivers.length > 0 && (
-            <div className="mb-5">
-              <HuckFleetMap
-                drivers={drivers}
-                loads={loads.filter((l) => l.collected && l.status !== 'expired')}
-                highlightedLoadId={highlightedLoadId}
-                showAssignments={ranked}
-                className="h-[420px] shadow-sm"
-              />
-            </div>
-          )}
+        {/* ─── LISTINGS ─── */}
+        <TabsContent value="listings">
+          <div className="space-y-4">
+            {/* Fleet map */}
+            {drivers.length > 0 && (
+              <Card>
+                <CardContent>
+                  <HuckFleetMap
+                    drivers={drivers}
+                    loads={loads.filter((l) => l.collected && l.status !== 'expired')}
+                    highlightedLoadId={highlightedLoadId}
+                    showAssignments={ranked}
+                    className="h-[380px]"
+                  />
+                </CardContent>
+              </Card>
+            )}
 
-          {/* Driver Fleet Panel */}
-          {drivers.length > 0 && (
-            <div className="bg-white/5 rounded-xl border border-white/10 mb-5 overflow-hidden">
-              <button
-                onClick={() => setShowDriverPanel(!showDriverPanel)}
-                className="w-full px-5 py-3 flex items-center justify-between hover:bg-white/5 transition-colors"
-              >
-                <div className="flex items-center gap-2">
-                  <Users className="h-4 w-4 text-blue-400" />
-                  <span className="text-sm font-bold text-white">Fleet Drivers</span>
-                  <span className="text-[10px] font-bold bg-blue-500/20 text-blue-400 rounded-full px-2 py-0.5">{drivers.length} synced from Motive</span>
-                </div>
-                {showDriverPanel ? <ChevronUp className="h-4 w-4 text-gray-600" /> : <ChevronDown className="h-4 w-4 text-gray-600" />}
-              </button>
-              {showDriverPanel && (
-                <div className="border-t border-white/10">
-                  <div className="grid grid-cols-5 gap-0 divide-x divide-white/5">
-                    {drivers.map((driver) => {
-                      const assignedLoadCount = driverLoadCount(driver.id)
-                      const accepted = driverAcceptedCount(driver.id)
-                      const calls = driverCallCount(driver.id)
-                      const assignedLoad = loads.find((l) => l.assigned_driver_id === driver.id && l.status === 'available')
-                      return (
-                        <div key={driver.id} className="px-4 py-3.5 hover:bg-white/5 transition-colors">
-                          <div className="flex items-center gap-2.5 mb-2.5">
-                            <div className={clsx(
-                              'h-9 w-9 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0',
-                              driver.available ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/10 text-gray-500'
-                            )}>
-                              {driver.name.split(' ').map((n) => n[0]).join('')}
-                            </div>
-                            <div className="min-w-0">
-                              <p className="text-sm font-bold text-white truncate">{driver.name}</p>
-                              <div className="flex items-center gap-1 text-[11px] text-gray-500">
-                                <MapPin className="h-3 w-3 shrink-0" />
-                                <span className="truncate">{driver.current_city}, {driver.current_state}</span>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="space-y-1.5">
-                            {/* HOS gauge */}
+            {/* Drivers panel */}
+            {drivers.length > 0 && (
+              <Card>
+                <CardHeader
+                  className="cursor-pointer select-none"
+                  onClick={() => setShowDriverPanel(!showDriverPanel)}
+                >
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <Users className="size-4 text-info" />
+                    Fleet Drivers
+                    <Badge variant="secondary">{drivers.length} synced</Badge>
+                  </CardTitle>
+                  <CardAction>
+                    {showDriverPanel
+                      ? <ChevronUp className="size-4 text-muted-foreground" />
+                      : <ChevronDown className="size-4 text-muted-foreground" />}
+                  </CardAction>
+                </CardHeader>
+                {showDriverPanel && (
+                  <CardContent>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                      {drivers.map((driver) => {
+                        const assigned = driverLoadCount(driver.id)
+                        const deals = driverAcceptedCount(driver.id)
+                        const calls = driverCallCount(driver.id)
+                        const assignedLoad = loads.find((l) => l.assigned_driver_id === driver.id && l.status === 'available')
+                        return (
+                          <div key={driver.id} className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
                             <div className="flex items-center gap-2">
-                              <span className="text-[10px] text-gray-500 w-8">HOS</span>
-                              <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
-                                <div
-                                  className={clsx('h-full rounded-full', driver.hos_remaining_hours >= 6 ? 'bg-emerald-500' : driver.hos_remaining_hours >= 4 ? 'bg-amber-400' : 'bg-red-400')}
-                                  style={{ width: `${Math.min((driver.hos_remaining_hours / 11) * 100, 100)}%` }}
-                                />
-                              </div>
-                              <span className={clsx(
-                                'text-[10px] font-bold w-8 text-right',
-                                driver.hos_remaining_hours >= 6 ? 'text-emerald-400' : driver.hos_remaining_hours >= 4 ? 'text-amber-400' : 'text-red-400'
+                              <div className={cn(
+                                'flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold',
+                                driver.available ? 'bg-success/20 text-success' : 'bg-muted text-muted-foreground'
                               )}>
-                                {driver.hos_remaining_hours}h
-                              </span>
+                                {driver.name.split(' ').map((n) => n[0]).join('')}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium text-foreground">{driver.name}</p>
+                                <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                                  <MapPin className="size-3 shrink-0" />
+                                  <span className="truncate">{driver.current_city}, {driver.current_state}</span>
+                                </p>
+                              </div>
                             </div>
-                            {/* Equipment & truck */}
+
+                            <Gauge value={driver.hos_remaining_hours} max={11} label="HOS" unit="h" />
+
                             <div className="flex items-center gap-1.5">
-                              <span className="text-[10px] font-bold bg-blue-500/20 text-blue-400 rounded px-1.5 py-0.5">{driver.trailer_type}</span>
-                              <span className="text-[10px] text-gray-500">{driver.truck_type}</span>
+                              <Badge variant="secondary" className="text-[10px]">{driver.trailer_type}</Badge>
+                              <span className="text-[10px] text-muted-foreground">{driver.truck_type}</span>
                             </div>
-                            {/* MC & Phone */}
-                            <div className="flex items-center gap-2 text-[10px] text-gray-500">
+
+                            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                               <span>MC-{driver.mc_number}</span>
                               <span>&middot;</span>
                               <span>{driver.phone}</span>
                             </div>
-                            {/* Assignment & performance */}
-                            <div className="flex items-center gap-2 pt-1 border-t border-white/5 mt-1">
-                              {assignedLoadCount > 0 ? (
-                                <span className="text-[10px] font-bold text-emerald-400">{assignedLoadCount} load{assignedLoadCount > 1 ? 's' : ''} assigned</span>
-                              ) : (
-                                <span className="text-[10px] text-gray-600">No loads assigned</span>
-                              )}
-                              {calls > 0 && (
-                                <>
-                                  <span className="text-gray-700">&middot;</span>
-                                  <span className="text-[10px] text-gray-500">{calls} call{calls > 1 ? 's' : ''}</span>
-                                </>
-                              )}
-                              {accepted > 0 && (
-                                <>
-                                  <span className="text-gray-700">&middot;</span>
-                                  <span className="text-[10px] font-bold text-emerald-400">{accepted} deal{accepted > 1 ? 's' : ''}</span>
-                                </>
-                              )}
+
+                            <div className="flex items-center gap-1.5 border-t border-border pt-2 text-[10px]">
+                              {assigned > 0
+                                ? <span className="font-medium text-success">{assigned} load{assigned > 1 ? 's' : ''}</span>
+                                : <span className="text-muted-foreground">Unassigned</span>}
+                              {calls > 0 && <><span className="text-muted-foreground">&middot;</span><span className="text-muted-foreground">{calls} call{calls > 1 ? 's' : ''}</span></>}
+                              {deals > 0 && <><span className="text-muted-foreground">&middot;</span><span className="font-medium text-success">{deals} deal{deals > 1 ? 's' : ''}</span></>}
                             </div>
-                            {/* Currently assigned load */}
+
                             {assignedLoad && (
-                              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-md px-2 py-1.5 mt-1 flex items-center gap-1.5">
-                                <ChevronRight className="h-3 w-3 text-emerald-500 shrink-0" />
-                                <span className="text-[10px] text-emerald-400 font-medium truncate">
+                              <div className="flex items-center gap-1.5 rounded-md bg-success/10 px-2 py-1.5">
+                                <ChevronRight className="size-3 text-success shrink-0" />
+                                <span className="truncate text-[10px] font-medium text-success">
                                   {assignedLoad.origin_city}, {assignedLoad.origin_state} → {assignedLoad.dest_city}, {assignedLoad.dest_state}
                                 </span>
-                                <span className="text-[10px] font-bold text-emerald-400 ml-auto">${Number(assignedLoad.posted_rate).toLocaleString()}</span>
+                                <span className="ml-auto text-[10px] font-semibold text-success">${Number(assignedLoad.posted_rate).toLocaleString()}</span>
                               </div>
                             )}
                           </div>
-                        </div>
-                      )
-                    })}
+                        )
+                      })}
+                    </div>
+                  </CardContent>
+                )}
+              </Card>
+            )}
+
+            {/* Rank button */}
+            {availableLoads.length > 0 && !ranked && (
+              <Button onClick={handleRankDrivers} disabled={ranking} className="w-full h-11" size="lg">
+                {ranking
+                  ? <><Loader2 className="size-4 animate-spin" /> Ranking loads by driver proximity &amp; cost...</>
+                  : <><Truck className="size-4" /> Rank Based on My Drivers</>}
+              </Button>
+            )}
+
+            {ranked && (
+              <Card className="border-success/30 bg-success/5">
+                <CardContent className="flex items-center justify-between gap-3 py-3">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="size-4 text-success" />
+                    <p className="text-sm font-medium text-success">Loads ranked and drivers assigned by proximity, destination distance &amp; cost</p>
                   </div>
-                </div>
-              )}
-            </div>
-          )}
+                  <Button variant="ghost" size="xs" onClick={() => setRanked(false)}>Re-rank</Button>
+                </CardContent>
+              </Card>
+            )}
 
-          {/* Rank Button */}
-          {availableLoads.length > 0 && !ranked && (
-            <button
-              onClick={handleRankDrivers}
-              disabled={ranking}
-              className="w-full mb-4 py-4 rounded-xl bg-emerald-600 text-white font-bold text-base hover:bg-emerald-700 transition-all active:scale-[0.99] flex items-center justify-center gap-3 shadow-lg shadow-emerald-600/20 disabled:opacity-60"
-            >
-              {ranking ? (
-                <><Loader2 className="h-5 w-5 animate-spin" /> Ranking loads by driver proximity &amp; cost...</>
-              ) : (
-                <><Truck className="h-5 w-5" /> Rank Based on My Drivers</>
-              )}
-            </button>
-          )}
-
-          {ranked && (
-            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-4 py-3 mb-4 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="h-4 w-4 text-emerald-400" />
-                <p className="text-sm font-semibold text-emerald-300">Loads ranked and drivers assigned by proximity, destination distance &amp; cost</p>
-              </div>
-              <button onClick={() => { setRanked(false) }} className="text-emerald-500 hover:text-emerald-300 text-xs font-medium">Re-rank</button>
-            </div>
-          )}
-
-          {/* Load Cards */}
-          <div className="space-y-2">
+            {/* Load list */}
             {availableLoads.length === 0 ? (
               <EmptyState
+                icon={Package}
                 title="No listings collected"
-                subtitle="Sync listings from DAT or upload a screenshot"
-                action={{ label: 'Open DAT', href: '/loadboard' }}
-                secondaryAction={{ label: 'Upload Screenshot', href: '/upload' }}
+                description="Sync listings from DAT or upload a screenshot"
+                action={
+                  <div className="flex gap-2">
+                    <Link href="/loadboard"><Button variant="outline" size="sm"><ExternalLink className="size-3.5" /> Open DAT</Button></Link>
+                    <Link href="/upload"><Button variant="outline" size="sm"><Camera className="size-3.5" /> Upload Screenshot</Button></Link>
+                  </div>
+                }
               />
             ) : (
-              availableLoads.map((load) => {
-                const spot = findSpot(load)
-                const opp = opportunityScore(load)
-                const posted = Number(load.posted_rate)
-                const spotAvg = spot ? Number(spot.avg_rate) : null
-                const spotHigh = spot ? Number(spot.high_rate) : null
-                const spotLow = spot ? Number(spot.low_rate) : null
-                const isCalling = callingLoadId === load.id
-                const assignedDriver = findDriver(load.assigned_driver_id)
-                const existingCall = findCallForLoad(load.id)
+              <div className="space-y-2">
+                {availableLoads.map((load) => {
+                  const spot = findSpot(load)
+                  const opp = opportunityScore(load)
+                  const posted = Number(load.posted_rate)
+                  const spotAvg = spot ? Number(spot.avg_rate) : null
+                  const spotHigh = spot ? Number(spot.high_rate) : null
+                  const spotLow = spot ? Number(spot.low_rate) : null
+                  const isCalling = callingLoadId === load.id
+                  const assignedDriver = findDriver(load.assigned_driver_id)
+                  const existingCall = findCallForLoad(load.id)
 
-                return (
-                  <div
-                    key={load.id}
-                    className="bg-white/5 rounded-lg border border-white/10 hover:border-white/20 transition-all overflow-hidden"
-                    onMouseEnter={() => setHighlightedLoadId(load.id)}
-                    onMouseLeave={() => setHighlightedLoadId(null)}
-                  >
-                    <div className="px-5 py-4 flex items-center justify-between">
-                      <div className="flex items-center gap-4 flex-1">
-                        {/* Opportunity indicator */}
-                        <div className={clsx(
-                          'h-10 w-10 rounded-lg flex items-center justify-center shrink-0',
-                          opp > 0 ? 'bg-emerald-500/10' : opp < 0 ? 'bg-red-500/10' : 'bg-white/5'
+                  return (
+                    <Card
+                      key={load.id}
+                      className="transition-colors hover:ring-foreground/20"
+                      onMouseEnter={() => setHighlightedLoadId(load.id)}
+                      onMouseLeave={() => setHighlightedLoadId(null)}
+                    >
+                      <CardContent className="flex items-center gap-4 py-3">
+                        <div className={cn(
+                          'flex size-9 shrink-0 items-center justify-center rounded-md',
+                          opp > 0 ? 'bg-success/10' : opp < 0 ? 'bg-destructive/10' : 'bg-muted'
                         )}>
-                          {opp > 0 ? (
-                            <TrendingDown className="h-5 w-5 text-emerald-400" />
-                          ) : opp < 0 ? (
-                            <TrendingUp className="h-5 w-5 text-red-400" />
-                          ) : (
-                            <span className="text-gray-600 text-xs">--</span>
-                          )}
+                          {opp > 0 ? <TrendingDown className="size-[18px] text-success" /> :
+                           opp < 0 ? <TrendingUp className="size-[18px] text-destructive" /> :
+                           <span className="text-xs text-muted-foreground">--</span>}
                         </div>
 
-                        {/* Load details */}
-                        <div className="flex-1 min-w-0">
+                        <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="font-bold text-white">{load.origin_city}, {load.origin_state}</span>
-                            <ArrowRight className="h-3.5 w-3.5 text-gray-600 shrink-0" />
-                            <span className="font-bold text-white">{load.dest_city}, {load.dest_state}</span>
-                            <span className={clsx(
-                              'inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold',
-                              load.equipment_type === 'Reefer' ? 'bg-emerald-500/20 text-emerald-400' :
-                              load.equipment_type === 'Flatbed' ? 'bg-amber-500/20 text-amber-400' :
-                              'bg-blue-500/20 text-blue-400'
-                            )}>
-                              {EQUIP_CODE[load.equipment_type] || 'V'}
-                            </span>
+                            <span className="font-medium text-foreground">{load.origin_city}, {load.origin_state}</span>
+                            <ArrowRight className="size-3.5 text-muted-foreground shrink-0" />
+                            <span className="font-medium text-foreground">{load.dest_city}, {load.dest_state}</span>
+                            <Badge variant="secondary" className="text-[10px]">{EQUIP_CODE[load.equipment_type] || 'V'}</Badge>
                             {load.source === 'screenshot' && (
-                              <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold bg-purple-500/20 text-purple-400">
-                                <Camera className="h-2.5 w-2.5 mr-0.5" /> Vision
-                              </span>
+                              <Badge variant="outline" className="border-purple-500/30 bg-purple-500/10 text-purple-400 text-[10px]">
+                                <Camera className="size-2.5" /> Vision
+                              </Badge>
                             )}
                           </div>
-                          <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-                            <span>{load.miles} mi</span>
-                            <span>&middot;</span>
-                            <span>{load.broker_name}</span>
-                            <span>&middot;</span>
+                          <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+                            <span>{load.miles} mi</span><span>&middot;</span>
+                            <span>{load.broker_name}</span><span>&middot;</span>
                             <span>Pickup {format(new Date(load.pickup_date), 'MMM d')}</span>
-                            {load.weight > 0 && (
-                              <>
-                                <span>&middot;</span>
-                                <span>{(load.weight / 1000).toFixed(0)}k lbs</span>
-                              </>
-                            )}
+                            {load.weight > 0 && <><span>&middot;</span><span>{(load.weight / 1000).toFixed(0)}k lbs</span></>}
                           </div>
-                          {/* Spot rate strip */}
                           {spot && (
-                            <div className="flex items-center gap-3 mt-1.5">
-                              <span className="text-[10px] text-gray-500">Spot:</span>
-                              <div className="flex items-center gap-1">
-                                <span className="text-[10px] text-gray-500">${spotLow?.toLocaleString()}</span>
-                                <div className="w-24 h-1.5 bg-white/10 rounded-full relative">
-                                  <div className="absolute h-full bg-gradient-to-r from-red-500/60 via-amber-500/60 to-emerald-500/60 rounded-full" style={{ width: '100%' }} />
-                                  {spotAvg && spotLow && spotHigh && (
-                                    <div
-                                      className="absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-white border border-gray-600"
-                                      style={{ left: `${Math.min(Math.max(((posted - spotLow) / (spotHigh - spotLow)) * 100, 0), 100)}%` }}
-                                      title={`Posted $${posted} on $${spotLow}-$${spotHigh} range`}
-                                    />
-                                  )}
-                                </div>
-                                <span className="text-[10px] text-gray-500">${spotHigh?.toLocaleString()}</span>
+                            <div className="mt-1.5 flex items-center gap-2">
+                              <span className="text-[10px] text-muted-foreground">Spot</span>
+                              <span className="text-[10px] text-muted-foreground">${spotLow?.toLocaleString()}</span>
+                              <div className="relative h-1.5 w-20 overflow-hidden rounded-full bg-muted">
+                                <div className="absolute inset-0 bg-gradient-to-r from-destructive/50 via-warning/50 to-success/50 rounded-full" />
+                                {spotAvg && spotLow && spotHigh && (
+                                  <div
+                                    className="absolute top-1/2 -translate-y-1/2 size-2 rounded-full bg-foreground ring-1 ring-background"
+                                    style={{ left: `${Math.min(Math.max(((posted - spotLow) / (spotHigh - spotLow)) * 100, 0), 100)}%` }}
+                                  />
+                                )}
                               </div>
-                              <span className="text-[10px] font-bold text-gray-400">Avg ${spotAvg?.toLocaleString()}</span>
+                              <span className="text-[10px] text-muted-foreground">${spotHigh?.toLocaleString()}</span>
+                              <span className="text-[10px] font-medium text-muted-foreground">Avg ${spotAvg?.toLocaleString()}</span>
                             </div>
                           )}
                         </div>
 
-                        {/* Assigned driver */}
-                        <div className="shrink-0 mr-2">
-                          {assignedDriver ? (() => {
-                            const dh = driverDeadhead(assignedDriver, load)
-                            return (
-                              <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-2">
-                                <div className="h-7 w-7 rounded-full bg-emerald-500/20 flex items-center justify-center text-[10px] font-bold text-emerald-400">
-                                  {assignedDriver.name.split(' ').map((n) => n[0]).join('')}
-                                </div>
-                                <div>
-                                  <p className="text-xs font-semibold text-gray-200">{assignedDriver.name}</p>
-                                  <div className="flex items-center gap-1.5 text-[10px] text-gray-500">
-                                    <MapPin className="h-2.5 w-2.5" />
-                                    {assignedDriver.current_city}, {assignedDriver.current_state}
-                                    <span className="text-gray-700">&middot;</span>
-                                    <span className={clsx('font-bold', dh < 100 ? 'text-emerald-400' : dh < 250 ? 'text-amber-400' : 'text-red-400')}>
-                                      {dh} mi
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-1.5 text-[10px] text-gray-500 mt-0.5">
-                                    <Gauge className="h-2.5 w-2.5" />
-                                    <span className={clsx('font-bold', assignedDriver.hos_remaining_hours >= 6 ? 'text-emerald-400' : 'text-amber-400')}>
-                                      {assignedDriver.hos_remaining_hours}h HOS
-                                    </span>
-                                    <span className="text-gray-700">&middot;</span>
-                                    <span>{assignedDriver.trailer_type}</span>
-                                  </div>
-                                </div>
+                        {assignedDriver ? (() => {
+                          const dh = driverDeadhead(assignedDriver, load)
+                          return (
+                            <div className="flex shrink-0 items-center gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-1.5">
+                              <div className="flex size-6 items-center justify-center rounded-full bg-success/20 text-[9px] font-semibold text-success">
+                                {assignedDriver.name.split(' ').map((n) => n[0]).join('')}
                               </div>
-                            )
-                          })() : (
-                            <div className="flex items-center gap-1.5 text-xs text-gray-600 border border-dashed border-white/10 rounded-lg px-3 py-2">
-                              <User className="h-3 w-3" />
-                              Unassigned
+                              <div className="text-[11px]">
+                                <p className="font-medium text-foreground">{assignedDriver.name}</p>
+                                <p className="text-muted-foreground">
+                                  <span className={cn('font-medium', dh < 100 ? 'text-success' : dh < 250 ? 'text-warning' : 'text-destructive')}>{dh} mi</span>
+                                  {' '}&middot; {assignedDriver.hos_remaining_hours}h HOS
+                                </p>
+                              </div>
                             </div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <p className="text-lg font-black text-white">${posted.toLocaleString()}</p>
-                          <div className="flex items-center gap-2 justify-end mt-0.5">
-                            <span className="text-[11px] text-gray-500">${Number(load.rate_per_mile).toFixed(2)}/mi</span>
+                          )
+                        })() : (
+                          <div className="flex shrink-0 items-center gap-1.5 rounded-md border border-dashed border-border px-2.5 py-2 text-xs text-muted-foreground">
+                            <User className="size-3" /> Unassigned
                           </div>
+                        )}
+
+                        <div className="shrink-0 text-right">
+                          <p className="text-lg font-semibold tabular-nums text-foreground">${posted.toLocaleString()}</p>
+                          <p className="text-[11px] tabular-nums text-muted-foreground">${Number(load.rate_per_mile).toFixed(2)}/mi</p>
                         </div>
 
                         {opp > 0 && (
-                          <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-1.5 text-center">
-                            <p className="text-emerald-400 font-black text-sm">${opp.toFixed(0)}</p>
-                            <p className="text-emerald-500/60 text-[9px] font-bold uppercase">Below Spot</p>
+                          <div className="shrink-0 rounded-md bg-success/10 px-2.5 py-1 text-center">
+                            <p className="text-sm font-semibold tabular-nums text-success">${opp.toFixed(0)}</p>
+                            <p className="text-[9px] font-medium uppercase text-success/60">Below Spot</p>
                           </div>
                         )}
                         {opp < 0 && (
-                          <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-1.5 text-center">
-                            <p className="text-red-400 font-black text-sm">${Math.abs(opp).toFixed(0)}</p>
-                            <p className="text-red-500/60 text-[9px] font-bold uppercase">Above Spot</p>
+                          <div className="shrink-0 rounded-md bg-destructive/10 px-2.5 py-1 text-center">
+                            <p className="text-sm font-semibold tabular-nums text-destructive">${Math.abs(opp).toFixed(0)}</p>
+                            <p className="text-[9px] font-medium uppercase text-destructive/60">Above Spot</p>
                           </div>
                         )}
 
-                        {existingCall ? (
-                          <span className={clsx(
-                            'flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-xs font-bold',
-                            existingCall.outcome === 'accepted' ? 'bg-emerald-500/10 text-emerald-400' :
-                            existingCall.outcome === 'in_progress' ? 'bg-amber-500/10 text-amber-400' :
-                            'bg-white/5 text-gray-400'
-                          )}>
-                            {existingCall.outcome === 'accepted' ? <><CheckCircle className="h-3.5 w-3.5" /> Booked</> :
-                             existingCall.outcome === 'in_progress' ? <><Volume2 className="h-3.5 w-3.5 animate-pulse" /> On Call</> :
-                             existingCall.outcome}
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => handleNegotiate(load.id)}
-                            disabled={isCalling}
-                            className={clsx(
-                              'flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all',
-                              isCalling
-                                ? 'bg-white/5 text-gray-500 cursor-wait'
-                                : 'bg-emerald-600 text-white hover:bg-emerald-700 active:scale-[0.97]'
-                            )}
-                          >
-                            {isCalling ? (
-                              <><Loader2 className="h-4 w-4 animate-spin" /> Calling...</>
-                            ) : (
-                              <><Bot className="h-4 w-4" /> Negotiate</>
-                            )}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )
-              })
+                        <div className="shrink-0">
+                          {existingCall ? (
+                            <StatusBadge status={existingCall.outcome} />
+                          ) : (
+                            <Button onClick={() => handleNegotiate(load.id)} disabled={isCalling} size="sm">
+                              {isCalling
+                                ? <><Loader2 className="size-3.5 animate-spin" /> Calling...</>
+                                : <><Bot className="size-3.5" /> Negotiate</>}
+                            </Button>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
             )}
           </div>
-        </div>
-      )}
+        </TabsContent>
 
-      {/* NEGOTIATING TAB */}
-      {activeTab === 'negotiating' && (
-        <div className="px-6 py-5">
+        {/* ─── NEGOTIATING ─── */}
+        <TabsContent value="negotiating">
           {negotiatingCalls.length === 0 && pendingReviewCalls.length === 0 && recentEndedCalls.length === 0 ? (
-            <EmptyState title="No active negotiations" subtitle="Click Negotiate on a listing to start a call" />
+            <EmptyState icon={PhoneCall} title="No active negotiations" description="Click Negotiate on a listing to start a call" />
           ) : (
             <div className="space-y-3">
-              {/* Active calls */}
-              {negotiatingCalls.map((call) => {
-                const load = loads.find((l) => l.id === call.load_id)
-                const driver = findDriver(call.driver_id)
-                const spot = load ? findSpot(load) : undefined
-                const isExpanded = expandedCallId === String(call.id)
-                return (
-                  <div key={call.id} className="bg-white/5 rounded-lg border border-amber-500/30 overflow-hidden">
-                    <div className="px-5 py-4 flex items-center justify-between cursor-pointer hover:bg-amber-500/5 transition-colors"
-                      onClick={() => setExpandedCallId(isExpanded ? null : String(call.id))}>
-                      <div className="flex items-center gap-4">
-                        <div className="h-11 w-11 rounded-lg bg-amber-500/10 flex items-center justify-center relative">
-                          <Phone className="h-5 w-5 text-amber-400" />
-                          <div className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-amber-500 animate-pulse" />
-                        </div>
-                        <div>
-                          <p className="font-bold text-white">
-                            {load ? `${load.origin_city}, ${load.origin_state}` : '...'}{' '}
-                            <ArrowRight className="h-3 w-3 inline text-gray-600" />{' '}
-                            {load ? `${load.dest_city}, ${load.dest_state}` : '...'}
-                          </p>
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            {load?.broker_name}
-                            {driver && <> &middot; Driver: <span className="text-gray-300 font-medium">{driver.name}</span></>}
-                            {' '}&middot; Strategy: <span className={clsx('font-bold', call.strategy === 'accept' ? 'text-emerald-400' : 'text-amber-400')}>{call.strategy}</span>
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right"><p className="text-[10px] text-gray-500">Offered</p><p className="font-bold text-white">${Number(call.offered_rate).toLocaleString()}</p></div>
-                        {spot && <div className="text-right"><p className="text-[10px] text-gray-500">Spot Avg</p><p className="font-bold text-gray-400">${Number(spot.avg_rate).toLocaleString()}</p></div>}
-                        {call.counter_offer_rate && (
-                          <div className="text-right"><p className="text-[10px] text-gray-500">Counter</p><p className="font-bold text-amber-400">${Number(call.counter_offer_rate).toLocaleString()}</p></div>
-                        )}
-                        <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold bg-amber-500/10 text-amber-400">
-                          {call.outcome === 'in_progress' ? <><Volume2 className="h-3 w-3 animate-pulse" /> On Call</> : <><Loader2 className="h-3 w-3 animate-spin" /> Initiating</>}
-                        </span>
-                        {isExpanded ? <ChevronUp className="h-4 w-4 text-gray-600" /> : <ChevronDown className="h-4 w-4 text-gray-600" />}
-                      </div>
-                    </div>
-                    {isExpanded && (
-                      <div className="px-5 pb-4 border-t border-white/10 pt-3">
-                        <div className="grid grid-cols-3 gap-4">
-                          <div className="bg-white/5 rounded-lg px-3 py-2.5">
-                            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold mb-1.5">Load Details</p>
-                            <p className="text-xs text-gray-400">{load?.equipment_type} &middot; {load?.miles} mi &middot; {load?.weight ? `${(load.weight / 1000).toFixed(0)}k lbs` : '--'}</p>
-                            <p className="text-xs text-gray-400">Pickup: {load?.pickup_date ? format(new Date(load.pickup_date), 'MMM d, yyyy') : '--'}</p>
-                            <p className="text-xs text-gray-400">Broker: {load?.broker_name} ({load?.broker_phone})</p>
-                          </div>
-                          {driver && (
-                            <div className="bg-blue-500/10 rounded-lg px-3 py-2.5">
-                              <p className="text-[10px] uppercase tracking-wider text-blue-400 font-bold mb-1.5">Assigned Driver</p>
-                              <p className="text-xs font-bold text-gray-200">{driver.name}</p>
-                              <p className="text-xs text-gray-400">{driver.current_city}, {driver.current_state}</p>
-                              <p className="text-xs text-gray-400">{driver.trailer_type} &middot; HOS: {driver.hos_remaining_hours}h &middot; MC-{driver.mc_number}</p>
-                            </div>
-                          )}
-                          <div className="bg-emerald-500/10 rounded-lg px-3 py-2.5">
-                            <p className="text-[10px] uppercase tracking-wider text-emerald-400 font-bold mb-1.5">Rate Analysis</p>
-                            <p className="text-xs text-gray-400">Posted: <span className="font-bold text-white">${load ? Number(load.posted_rate).toLocaleString() : '--'}</span></p>
-                            <p className="text-xs text-gray-400">Spot Avg: <span className="font-bold text-white">{spot ? `$${Number(spot.avg_rate).toLocaleString()}` : '--'}</span></p>
-                            <p className="text-xs text-gray-400">Target: <span className="font-bold text-emerald-400">${Number(call.offered_rate).toLocaleString()}</span></p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-
-              {/* Pending review */}
+              {negotiatingCalls.map((call) => (
+                <NegotiatingCard key={call.id} call={call} loads={loads} findSpot={findSpot} findDriver={findDriver}
+                  expanded={expandedCallId === String(call.id)} onToggle={() => setExpandedCallId(expandedCallId === String(call.id) ? null : String(call.id))}
+                  onSummarize={handleSummarize} summarizingId={summarizingId} variant="active" />
+              ))}
               {pendingReviewCalls.length > 0 && (
-                <div className="mt-4">
-                  <p className="text-xs text-blue-400 font-bold uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <AlertCircle className="h-3.5 w-3.5" /> Pending Review — Broker Offers
-                  </p>
-                  {pendingReviewCalls.map((call) => {
-                    const load = loads.find((l) => l.id === call.load_id)
-                    const driver = findDriver(call.driver_id)
-                    const spot = load ? findSpot(load) : undefined
-                    const isExpanded = expandedCallId === String(call.id)
-                    return (
-                      <div key={call.id} className="bg-white/5 rounded-lg border border-blue-500/30 overflow-hidden mb-2">
-                        <div className="px-5 py-4 flex items-center justify-between cursor-pointer hover:bg-blue-500/5 transition-colors"
-                          onClick={() => setExpandedCallId(isExpanded ? null : String(call.id))}>
-                          <div className="flex items-center gap-4">
-                            <div className="h-11 w-11 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                              <MessageSquare className="h-5 w-5 text-blue-400" />
-                            </div>
-                            <div>
-                              <p className="font-bold text-white">
-                                {load ? `${load.origin_city}, ${load.origin_state}` : '...'}{' '}
-                                <ArrowRight className="h-3 w-3 inline text-gray-600" />{' '}
-                                {load ? `${load.dest_city}, ${load.dest_state}` : '...'}
-                              </p>
-                              <p className="text-xs text-gray-500 mt-0.5">
-                                {load?.broker_name}
-                                {driver && <> &middot; Driver: <span className="text-gray-300 font-medium">{driver.name}</span></>}
-                                {' '}&middot; Deferred to team
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-4">
-                            <div className="text-right"><p className="text-[10px] text-gray-500">Posted</p><p className="font-bold text-white">${load ? Number(load.posted_rate).toLocaleString() : '--'}</p></div>
-                            <div className="text-right"><p className="text-[10px] text-gray-500">Broker Offer</p><p className="font-bold text-blue-400">${call.counter_offer_rate ? Number(call.counter_offer_rate).toLocaleString() : '--'}</p></div>
-                            {spot && <div className="text-right"><p className="text-[10px] text-gray-500">Spot</p><p className="font-bold text-gray-400">${Number(spot.avg_rate).toLocaleString()}</p></div>}
-                            <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold bg-blue-500/10 text-blue-400"><Clock className="h-3 w-3" /> Review</span>
-                            {isExpanded ? <ChevronUp className="h-4 w-4 text-gray-600" /> : <ChevronDown className="h-4 w-4 text-gray-600" />}
-                          </div>
-                        </div>
-                        {isExpanded && (
-                          <div className="px-5 pb-4 border-t border-white/10 pt-3 space-y-3">
-                            {call.summary && (
-                              <div className="bg-white/5 rounded-lg px-4 py-3">
-                                <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold mb-1">Call Summary</p>
-                                <p className="text-xs text-gray-400 italic">&quot;{call.summary}&quot;</p>
-                              </div>
-                            )}
-                            {call.transcript && (
-                              <div className="bg-white/5 rounded-lg px-4 py-3 max-h-40 overflow-y-auto">
-                                <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold mb-1">Transcript</p>
-                                <p className="text-xs text-gray-500 whitespace-pre-wrap">{call.transcript}</p>
-                              </div>
-                            )}
-                            {call.transcript && !call.summary && (
-                              <button onClick={() => handleSummarize(String(call.id))} disabled={summarizingId === String(call.id)}
-                                className="flex items-center gap-1.5 text-xs font-semibold text-blue-400 hover:text-blue-300">
-                                {summarizingId === String(call.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                                Summarize with AI
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
+                <>
+                  <div className="flex items-center gap-2 pt-2">
+                    <AlertCircle className="size-3.5 text-info" />
+                    <p className="text-xs font-medium uppercase tracking-wider text-info">Pending Review</p>
+                  </div>
+                  {pendingReviewCalls.map((call) => (
+                    <NegotiatingCard key={call.id} call={call} loads={loads} findSpot={findSpot} findDriver={findDriver}
+                      expanded={expandedCallId === String(call.id)} onToggle={() => setExpandedCallId(expandedCallId === String(call.id) ? null : String(call.id))}
+                      onSummarize={handleSummarize} summarizingId={summarizingId} variant="review" />
+                  ))}
+                </>
               )}
-
-              {/* Ended calls */}
               {recentEndedCalls.length > 0 && (
-                <div className="mt-4">
-                  <p className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-2">Ended</p>
-                  {recentEndedCalls.map((call) => {
-                    const load = loads.find((l) => l.id === call.load_id)
-                    const driver = findDriver(call.driver_id)
-                    const isExpanded = expandedCallId === String(call.id)
-                    return (
-                      <div key={call.id} className="bg-white/5 rounded-lg border border-white/10 overflow-hidden mb-2">
-                        <div className="px-5 py-3 flex items-center justify-between cursor-pointer hover:bg-white/5 transition-colors"
-                          onClick={() => setExpandedCallId(isExpanded ? null : String(call.id))}>
-                          <div className="flex items-center gap-3">
-                            <X className="h-4 w-4 text-red-400" />
-                            <p className="text-sm text-gray-400">
-                              {load ? `${load.origin_city}, ${load.origin_state} → ${load.dest_city}, ${load.dest_state}` : '...'}
-                              {driver && <span className="text-gray-600"> &middot; {driver.name}</span>}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            {call.duration_seconds && <span className="text-xs text-gray-500">{call.duration_seconds}s</span>}
-                            <span className="text-xs font-bold text-red-400">{call.outcome === 'rejected' ? 'Rejected' : call.outcome === 'voicemail' ? 'Voicemail' : call.outcome === 'no_answer' ? 'No Answer' : 'Error'}</span>
-                            {isExpanded ? <ChevronUp className="h-4 w-4 text-gray-600" /> : <ChevronDown className="h-4 w-4 text-gray-600" />}
-                          </div>
-                        </div>
-                        {isExpanded && (
-                          <div className="px-5 pb-3 border-t border-white/10 pt-3 space-y-2">
-                            {call.summary && <div className="bg-white/5 rounded-lg px-4 py-3"><p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold mb-1">Summary</p><p className="text-xs text-gray-400 italic">&quot;{call.summary}&quot;</p></div>}
-                            {call.transcript && <div className="bg-white/5 rounded-lg px-4 py-3 max-h-40 overflow-y-auto"><p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold mb-1">Transcript</p><p className="text-xs text-gray-500 whitespace-pre-wrap">{call.transcript}</p></div>}
-                            {call.transcript && !call.summary && (
-                              <button onClick={() => handleSummarize(String(call.id))} disabled={summarizingId === String(call.id)}
-                                className="flex items-center gap-1.5 text-xs font-semibold text-blue-400 hover:text-blue-300">
-                                {summarizingId === String(call.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                                Summarize with AI
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
+                <>
+                  <p className="pt-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Ended</p>
+                  {recentEndedCalls.map((call) => (
+                    <NegotiatingCard key={call.id} call={call} loads={loads} findSpot={findSpot} findDriver={findDriver}
+                      expanded={expandedCallId === String(call.id)} onToggle={() => setExpandedCallId(expandedCallId === String(call.id) ? null : String(call.id))}
+                      onSummarize={handleSummarize} summarizingId={summarizingId} variant="ended" />
+                  ))}
+                </>
               )}
             </div>
           )}
-        </div>
-      )}
+        </TabsContent>
 
-      {/* CONFIRMED TAB */}
-      {activeTab === 'confirmed' && (
-        <div className="px-6 py-5">
+        {/* ─── CONFIRMED ─── */}
+        <TabsContent value="confirmed">
           {confirmedCalls.length === 0 ? (
-            <EmptyState title="No confirmed deals yet" subtitle="Deals confirmed by brokers will appear here" />
+            <EmptyState icon={CheckCircle} title="No confirmed deals yet" description="Deals confirmed by brokers will appear here" />
           ) : (
-            <div className="space-y-3">
-              {/* Revenue summary strip */}
-              <div className="grid grid-cols-4 gap-3 mb-2">
-                <div className="bg-white/5 rounded-lg border border-white/10 px-4 py-3">
-                  <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">Deals Closed</p>
-                  <p className="text-2xl font-black text-emerald-400">{confirmedCalls.length}</p>
-                </div>
-                <div className="bg-white/5 rounded-lg border border-white/10 px-4 py-3">
-                  <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">Total Revenue</p>
-                  <p className="text-2xl font-black text-white">${totalRevenue.toLocaleString()}</p>
-                </div>
-                <div className="bg-white/5 rounded-lg border border-white/10 px-4 py-3">
-                  <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">Avg vs Spot</p>
-                  <p className={clsx('text-2xl font-black', avgSavings > 0 ? 'text-emerald-400' : 'text-gray-500')}>
-                    {avgSavings > 0 ? `-$${avgSavings.toFixed(0)}` : '--'}
-                  </p>
-                </div>
-                <div className="bg-white/5 rounded-lg border border-white/10 px-4 py-3">
-                  <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">Close Rate</p>
-                  <p className="text-2xl font-black text-blue-400">{closeRate}%</p>
-                </div>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <StatCard label="Deals" value={confirmedCalls.length} icon={CheckCircle} accent="success" />
+                <StatCard label="Revenue" value={`$${totalRevenue.toLocaleString()}`} icon={DollarSign} />
+                <StatCard label="Avg vs Spot" value={avgSavings > 0 ? `-$${avgSavings.toFixed(0)}` : '--'} icon={TrendingDown} accent={avgSavings > 0 ? 'success' : 'default'} />
+                <StatCard label="Close Rate" value={`${closeRate}%`} icon={Activity} accent="info" />
               </div>
 
               {confirmedCalls.map((call) => {
@@ -1022,138 +678,205 @@ export default function HuckPage() {
                 const savings = spot && call.final_rate ? Number(spot.avg_rate) - Number(call.final_rate) : null
                 const isExpanded = expandedCallId === String(call.id)
                 return (
-                  <div key={call.id} className="bg-white/5 rounded-lg border border-emerald-500/30 overflow-hidden">
-                    <div className="px-5 py-4 flex items-center justify-between cursor-pointer hover:bg-emerald-500/5 transition-colors"
+                  <Card key={call.id} className="border-success/20">
+                    <CardContent className="flex cursor-pointer items-center gap-4 py-3"
                       onClick={() => setExpandedCallId(isExpanded ? null : String(call.id))}>
-                      <div className="flex items-center gap-4">
-                        <div className="h-11 w-11 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-                          <CheckCircle className="h-6 w-6 text-emerald-400" />
-                        </div>
-                        <div>
-                          <p className="font-bold text-white">
-                            {load ? `${load.origin_city}, ${load.origin_state}` : '...'}{' '}
-                            <ArrowRight className="h-3 w-3 inline text-gray-600" />{' '}
-                            {load ? `${load.dest_city}, ${load.dest_state}` : '...'}
-                          </p>
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            {load?.broker_name}
-                            {driver && <> &middot; <span className="text-emerald-400 font-semibold">{driver.name}</span> ({driver.trailer_type})</>}
-                            {' '}&middot; {load?.equipment_type} &middot; {load?.miles} mi
-                          </p>
-                        </div>
+                      <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-success/10">
+                        <CheckCircle className="size-5 text-success" />
                       </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right"><p className="text-[10px] text-gray-500">Final Rate</p><p className="font-black text-emerald-400 text-xl">${call.final_rate ? Number(call.final_rate).toLocaleString() : Number(call.offered_rate).toLocaleString()}</p></div>
-                        {savings !== null && savings > 0 && (
-                          <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-1.5 text-center"><p className="text-emerald-400 font-black">${savings.toFixed(0)}</p><p className="text-emerald-500/60 text-[9px] font-bold uppercase">Below Spot</p></div>
-                        )}
-                        <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold bg-emerald-500/10 text-emerald-400"><CheckCircle className="h-3 w-3" /> Confirmed</span>
-                        {isExpanded ? <ChevronUp className="h-4 w-4 text-gray-600" /> : <ChevronDown className="h-4 w-4 text-gray-600" />}
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-foreground">
+                          {load ? `${load.origin_city}, ${load.origin_state}` : '...'}{' '}
+                          <ArrowRight className="inline size-3 text-muted-foreground" />{' '}
+                          {load ? `${load.dest_city}, ${load.dest_state}` : '...'}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {load?.broker_name}
+                          {driver && <> &middot; <span className="font-medium text-success">{driver.name}</span></>}
+                          {' '}&middot; {load?.equipment_type} &middot; {load?.miles} mi
+                        </p>
                       </div>
-                    </div>
+                      <div className="shrink-0 text-right">
+                        <p className="text-[10px] text-muted-foreground">Final Rate</p>
+                        <p className="text-lg font-semibold tabular-nums text-success">${call.final_rate ? Number(call.final_rate).toLocaleString() : Number(call.offered_rate).toLocaleString()}</p>
+                      </div>
+                      {savings !== null && savings > 0 && (
+                        <div className="shrink-0 rounded-md bg-success/10 px-2.5 py-1 text-center">
+                          <p className="text-sm font-semibold tabular-nums text-success">${savings.toFixed(0)}</p>
+                          <p className="text-[9px] font-medium uppercase text-success/60">Below Spot</p>
+                        </div>
+                      )}
+                      <StatusBadge status="accepted" />
+                      {isExpanded ? <ChevronUp className="size-4 text-muted-foreground" /> : <ChevronDown className="size-4 text-muted-foreground" />}
+                    </CardContent>
                     {isExpanded && (
-                      <div className="px-5 pb-4 border-t border-white/10 pt-3 space-y-3">
-                        <div className="grid grid-cols-3 gap-3">
-                          {/* Load details */}
-                          <div className="bg-white/5 rounded-lg px-4 py-3">
-                            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold mb-2">Load Details</p>
-                            <div className="space-y-1 text-xs text-gray-400">
-                              <p><span className="text-gray-500">Lane:</span> {load ? `${load.origin_city}, ${load.origin_state} → ${load.dest_city}, ${load.dest_state}` : '--'}</p>
-                              <p><span className="text-gray-500">Equipment:</span> {load?.equipment_type}</p>
-                              <p><span className="text-gray-500">Distance:</span> {load?.miles} mi</p>
-                              <p><span className="text-gray-500">Weight:</span> {load?.weight ? `${(load.weight / 1000).toFixed(0)}k lbs` : '--'}</p>
-                              <p><span className="text-gray-500">Pickup:</span> {load?.pickup_date ? format(new Date(load.pickup_date), 'MMM d, yyyy') : '--'}</p>
-                              <p><span className="text-gray-500">Broker:</span> {load?.broker_name}</p>
-                              <p><span className="text-gray-500">Broker Phone:</span> {load?.broker_phone}</p>
-                              {accepted && <p><span className="text-gray-500">Status:</span> <span className="font-bold text-emerald-400">{accepted.status}</span></p>}
-                            </div>
-                          </div>
-                          {/* Driver details */}
-                          <div className="bg-blue-500/10 rounded-lg px-4 py-3">
-                            <p className="text-[10px] uppercase tracking-wider text-blue-400 font-bold mb-2">Driver Details</p>
-                            {driver ? (
-                              <div className="space-y-1 text-xs text-gray-400">
-                                <p className="font-bold text-gray-200">{driver.name}</p>
-                                <p><span className="text-blue-400/60">Location:</span> {driver.current_city}, {driver.current_state}</p>
-                                <p><span className="text-blue-400/60">Truck:</span> {driver.truck_type}</p>
-                                <p><span className="text-blue-400/60">Trailer:</span> {driver.trailer_type}</p>
-                                <p><span className="text-blue-400/60">HOS:</span> {driver.hos_remaining_hours}h remaining</p>
-                                <p><span className="text-blue-400/60">MC:</span> {driver.mc_number}</p>
-                                <p><span className="text-blue-400/60">Phone:</span> {driver.phone}</p>
-                                {load && <p><span className="text-blue-400/60">Deadhead:</span> {driverDeadhead(driver, load)} mi</p>}
-                              </div>
-                            ) : (
-                              <p className="text-xs text-gray-500">No driver info</p>
-                            )}
-                          </div>
-                          {/* Negotiation details */}
-                          <div className="bg-emerald-500/10 rounded-lg px-4 py-3">
-                            <p className="text-[10px] uppercase tracking-wider text-emerald-400 font-bold mb-2">Negotiation</p>
-                            <div className="space-y-1 text-xs text-gray-400">
-                              <p><span className="text-emerald-400/60">Strategy:</span> <span className={clsx('font-bold', call.strategy === 'accept' ? 'text-emerald-400' : 'text-amber-400')}>{call.strategy}</span></p>
-                              <p><span className="text-emerald-400/60">Posted Rate:</span> ${load ? Number(load.posted_rate).toLocaleString() : '--'}</p>
-                              <p><span className="text-emerald-400/60">Spot Rate:</span> {spot ? `$${Number(spot.avg_rate).toLocaleString()}` : '--'}</p>
-                              <p><span className="text-emerald-400/60">Our Ask:</span> ${Number(call.offered_rate).toLocaleString()}</p>
-                              {call.counter_offer_rate && <p><span className="text-emerald-400/60">Broker Counter:</span> ${Number(call.counter_offer_rate).toLocaleString()}</p>}
-                              <p className="font-bold text-emerald-400 text-sm pt-1"><span className="text-emerald-400/60">Final Rate:</span> ${call.final_rate ? Number(call.final_rate).toLocaleString() : Number(call.offered_rate).toLocaleString()}</p>
-                              <p><span className="text-emerald-400/60">Duration:</span> {call.duration_seconds ? `${call.duration_seconds}s` : '--'}</p>
-                              <p><span className="text-emerald-400/60">$/mile:</span> {load && call.final_rate ? `$${(Number(call.final_rate) / load.miles).toFixed(2)}` : '--'}</p>
-                            </div>
-                          </div>
+                      <CardContent className="border-t border-border space-y-3 pt-3">
+                        <div className="grid gap-3 md:grid-cols-3">
+                          <DetailPanel title="Load Details" accent="muted">
+                            <DetailRow label="Lane" value={load ? `${load.origin_city}, ${load.origin_state} → ${load.dest_city}, ${load.dest_state}` : '--'} />
+                            <DetailRow label="Equipment" value={load?.equipment_type} />
+                            <DetailRow label="Distance" value={`${load?.miles} mi`} />
+                            <DetailRow label="Weight" value={load?.weight ? `${(load.weight / 1000).toFixed(0)}k lbs` : '--'} />
+                            <DetailRow label="Pickup" value={load?.pickup_date ? format(new Date(load.pickup_date), 'MMM d, yyyy') : '--'} />
+                            <DetailRow label="Broker" value={load?.broker_name} />
+                            <DetailRow label="Phone" value={load?.broker_phone} />
+                            {accepted && <DetailRow label="Status" value={accepted.status} valueClass="text-success font-medium" />}
+                          </DetailPanel>
+                          <DetailPanel title="Driver" accent="info">
+                            {driver ? (<>
+                              <p className="text-xs font-medium text-foreground">{driver.name}</p>
+                              <DetailRow label="Location" value={`${driver.current_city}, ${driver.current_state}`} />
+                              <DetailRow label="Truck" value={driver.truck_type} />
+                              <DetailRow label="Trailer" value={driver.trailer_type} />
+                              <DetailRow label="HOS" value={`${driver.hos_remaining_hours}h`} />
+                              <DetailRow label="MC" value={driver.mc_number} />
+                              <DetailRow label="Phone" value={driver.phone} />
+                              {load && <DetailRow label="Deadhead" value={`${driverDeadhead(driver, load)} mi`} />}
+                            </>) : <p className="text-xs text-muted-foreground">No driver info</p>}
+                          </DetailPanel>
+                          <DetailPanel title="Negotiation" accent="success">
+                            <DetailRow label="Strategy" value={call.strategy} valueClass={call.strategy === 'accept' ? 'text-success font-medium' : 'text-warning font-medium'} />
+                            <DetailRow label="Posted" value={`$${load ? Number(load.posted_rate).toLocaleString() : '--'}`} />
+                            <DetailRow label="Spot Avg" value={spot ? `$${Number(spot.avg_rate).toLocaleString()}` : '--'} />
+                            <DetailRow label="Our Ask" value={`$${Number(call.offered_rate).toLocaleString()}`} />
+                            {call.counter_offer_rate && <DetailRow label="Counter" value={`$${Number(call.counter_offer_rate).toLocaleString()}`} />}
+                            <DetailRow label="Final" value={`$${call.final_rate ? Number(call.final_rate).toLocaleString() : Number(call.offered_rate).toLocaleString()}`} valueClass="text-success font-semibold" />
+                            <DetailRow label="Duration" value={call.duration_seconds ? `${call.duration_seconds}s` : '--'} />
+                            <DetailRow label="$/mile" value={load && call.final_rate ? `$${(Number(call.final_rate) / load.miles).toFixed(2)}` : '--'} />
+                          </DetailPanel>
                         </div>
-
-                        {call.summary && (
-                          <div className="bg-white/5 rounded-lg px-4 py-3">
-                            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold mb-1">AI Call Summary</p>
-                            <p className="text-xs text-gray-400 italic">&quot;{call.summary}&quot;</p>
-                          </div>
-                        )}
-                        {call.transcript && (
-                          <div className="bg-white/5 rounded-lg px-4 py-3 max-h-40 overflow-y-auto">
-                            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold mb-1">Full Transcript</p>
-                            <p className="text-xs text-gray-500 whitespace-pre-wrap">{call.transcript}</p>
-                          </div>
-                        )}
-                        {call.transcript && !call.summary && (
-                          <button onClick={() => handleSummarize(String(call.id))} disabled={summarizingId === String(call.id)}
-                            className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400 hover:text-emerald-300">
-                            {summarizingId === String(call.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                            Summarize with AI
-                          </button>
-                        )}
-                      </div>
+                        <TranscriptSection call={call} onSummarize={handleSummarize} summarizingId={summarizingId} />
+                      </CardContent>
                     )}
-                  </div>
+                  </Card>
                 )
               })}
             </div>
           )}
+        </TabsContent>
+      </Tabs>
+    </AppShell>
+  )
+}
+
+/* ─── Sub-components ─── */
+
+function NegotiatingCard({ call, loads, findSpot, findDriver, expanded, onToggle, onSummarize, summarizingId, variant }: {
+  call: CallLog; loads: Load[]; findSpot: (l: Load) => SpotRate | undefined; findDriver: (id: string | null) => Driver | undefined
+  expanded: boolean; onToggle: () => void; onSummarize: (id: string) => void; summarizingId: string | null; variant: 'active' | 'review' | 'ended'
+}) {
+  const load = loads.find((l) => l.id === call.load_id)
+  const driver = findDriver(call.driver_id)
+  const spot = load ? findSpot(load) : undefined
+  const borderClass = variant === 'active' ? 'border-warning/30' : variant === 'review' ? 'border-info/30' : ''
+  return (
+    <Card className={borderClass}>
+      <CardContent className="flex cursor-pointer items-center gap-4 py-3" onClick={onToggle}>
+        <div className={cn('relative flex size-9 shrink-0 items-center justify-center rounded-md',
+          variant === 'active' ? 'bg-warning/10' : variant === 'review' ? 'bg-info/10' : 'bg-muted')}>
+          {variant === 'active' ? <Phone className="size-[18px] text-warning" /> :
+           variant === 'review' ? <AlertCircle className="size-[18px] text-info" /> :
+           <X className="size-[18px] text-destructive" />}
+          {variant === 'active' && <div className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-warning animate-pulse" />}
         </div>
+        <div className="min-w-0 flex-1">
+          <p className="font-medium text-foreground">
+            {load ? `${load.origin_city}, ${load.origin_state}` : '...'}{' '}
+            <ArrowRight className="inline size-3 text-muted-foreground" />{' '}
+            {load ? `${load.dest_city}, ${load.dest_state}` : '...'}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {load?.broker_name}
+            {driver && <> &middot; <span className="font-medium text-foreground">{driver.name}</span></>}
+            {call.strategy && <> &middot; <StrategyBadge strategy={call.strategy} /></>}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-3">
+          {variant !== 'ended' && (<>
+            <div className="text-right"><p className="text-[10px] text-muted-foreground">Offered</p><p className="text-sm font-medium tabular-nums text-foreground">${Number(call.offered_rate).toLocaleString()}</p></div>
+            {spot && <div className="text-right"><p className="text-[10px] text-muted-foreground">Spot</p><p className="text-sm font-medium tabular-nums text-muted-foreground">${Number(spot.avg_rate).toLocaleString()}</p></div>}
+            {call.counter_offer_rate && <div className="text-right"><p className="text-[10px] text-muted-foreground">Counter</p><p className="text-sm font-medium tabular-nums text-warning">${Number(call.counter_offer_rate).toLocaleString()}</p></div>}
+          </>)}
+          {variant === 'ended' && call.duration_seconds && <span className="text-xs text-muted-foreground">{call.duration_seconds}s</span>}
+          <StatusBadge status={variant === 'active' ? (call.outcome === 'in_progress' ? 'in_progress' : 'pending') : variant === 'review' ? 'pending_review' : call.outcome} />
+          {expanded ? <ChevronUp className="size-4 text-muted-foreground" /> : <ChevronDown className="size-4 text-muted-foreground" />}
+        </div>
+      </CardContent>
+      {expanded && (
+        <CardContent className="border-t border-border space-y-3 pt-3">
+          {variant !== 'ended' && (
+            <div className="grid gap-3 md:grid-cols-3">
+              <DetailPanel title="Load" accent="muted">
+                <DetailRow label="Equipment" value={load?.equipment_type} />
+                <DetailRow label="Distance" value={`${load?.miles} mi`} />
+                <DetailRow label="Weight" value={load?.weight ? `${(load.weight / 1000).toFixed(0)}k lbs` : '--'} />
+                <DetailRow label="Pickup" value={load?.pickup_date ? format(new Date(load.pickup_date), 'MMM d, yyyy') : '--'} />
+                <DetailRow label="Broker" value={`${load?.broker_name} (${load?.broker_phone})`} />
+              </DetailPanel>
+              {driver && (
+                <DetailPanel title="Driver" accent="info">
+                  <p className="text-xs font-medium text-foreground">{driver.name}</p>
+                  <DetailRow label="Location" value={`${driver.current_city}, ${driver.current_state}`} />
+                  <DetailRow label="Equipment" value={`${driver.trailer_type} · HOS: ${driver.hos_remaining_hours}h`} />
+                  <DetailRow label="MC" value={driver.mc_number} />
+                </DetailPanel>
+              )}
+              <DetailPanel title="Rate Analysis" accent="success">
+                <DetailRow label="Posted" value={`$${load ? Number(load.posted_rate).toLocaleString() : '--'}`} />
+                <DetailRow label="Spot Avg" value={spot ? `$${Number(spot.avg_rate).toLocaleString()}` : '--'} />
+                <DetailRow label="Target" value={`$${Number(call.offered_rate).toLocaleString()}`} valueClass="text-success font-medium" />
+              </DetailPanel>
+            </div>
+          )}
+          <TranscriptSection call={call} onSummarize={onSummarize} summarizingId={summarizingId} />
+        </CardContent>
       )}
+    </Card>
+  )
+}
+
+function DetailPanel({ title, accent, children }: { title: string; accent: 'muted' | 'info' | 'success'; children: React.ReactNode }) {
+  const labelColor = accent === 'info' ? 'text-info' : accent === 'success' ? 'text-success' : 'text-muted-foreground'
+  return (
+    <div className="rounded-lg bg-muted/30 px-3 py-2.5 space-y-1">
+      <p className={cn('text-[10px] font-medium uppercase tracking-wider', labelColor)}>{title}</p>
+      {children}
     </div>
   )
 }
 
-function EmptyState({ title, subtitle, action, secondaryAction }: { title: string; subtitle: string; action?: { label: string; href: string }; secondaryAction?: { label: string; href: string } }) {
+function DetailRow({ label, value, valueClass }: { label: string; value?: string | null; valueClass?: string }) {
   return (
-    <div className="text-center py-20">
-      <div className="h-16 w-16 rounded-2xl bg-white/5 flex items-center justify-center mx-auto mb-4">
-        <Zap className="h-7 w-7 text-gray-600" />
-      </div>
-      <p className="text-sm font-semibold text-gray-400">{title}</p>
-      <p className="text-xs text-gray-500 mt-1">{subtitle}</p>
-      <div className="flex items-center justify-center gap-3 mt-4">
-        {action && (
-          <a href={action.href} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-500/10 text-emerald-400 text-xs font-bold hover:bg-emerald-500/20 transition-colors">
-            <ExternalLink className="h-3 w-3" /> {action.label}
-          </a>
-        )}
-        {secondaryAction && (
-          <a href={secondaryAction.href} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white/5 text-gray-400 text-xs font-bold hover:bg-white/10 transition-colors">
-            <Camera className="h-3 w-3" /> {secondaryAction.label}
-          </a>
-        )}
-      </div>
-    </div>
+    <p className="text-xs text-muted-foreground">
+      <span className="text-muted-foreground/60">{label}:</span>{' '}
+      <span className={valueClass || 'text-foreground'}>{value || '--'}</span>
+    </p>
+  )
+}
+
+function TranscriptSection({ call, onSummarize, summarizingId }: { call: CallLog; onSummarize: (id: string) => void; summarizingId: string | null }) {
+  return (
+    <>
+      {call.summary && (
+        <div className="rounded-lg bg-muted/30 px-3 py-2.5">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">AI Summary</p>
+          <p className="mt-1 text-xs italic text-muted-foreground">&quot;{call.summary}&quot;</p>
+        </div>
+      )}
+      {call.transcript && (
+        <div className="max-h-40 overflow-y-auto rounded-lg bg-muted/30 px-3 py-2.5">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Transcript</p>
+          <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">{call.transcript}</p>
+        </div>
+      )}
+      {call.transcript && !call.summary && (
+        <Button variant="ghost" size="xs"
+          onClick={(e) => { e.stopPropagation(); onSummarize(String(call.id)) }}
+          disabled={summarizingId === String(call.id)}>
+          {summarizingId === String(call.id) ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
+          Summarize with AI
+        </Button>
+      )}
+    </>
   )
 }

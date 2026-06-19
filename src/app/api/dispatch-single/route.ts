@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/insforge'
 import { determineStrategy } from '@/lib/rate-engine'
 import { VAPI_BASE_URL } from '@/lib/constants'
 import { normalizePhoneToE164 } from '@/lib/phone-utils'
+import { assertCanDispatchLoad, claimLoadForDispatch } from '@/lib/dispatch-guards'
 import type { Load, Driver, SpotRate } from '@/lib/types'
 
 export async function POST(request: Request) {
@@ -61,6 +62,16 @@ export async function POST(request: Request) {
   const spotRate = (spotData?.length ? spotData[0] : null) as SpotRate | null
   const decision = determineStrategy(load, spotRate, driver)
 
+  const guard = await assertCanDispatchLoad(admin, load)
+  if (!guard.ok) {
+    return NextResponse.json({ error: guard.error, code: guard.code }, { status: guard.status })
+  }
+
+  const claim = await claimLoadForDispatch(admin, load.id)
+  if (!claim.ok) {
+    return NextResponse.json({ error: claim.error, code: claim.code }, { status: claim.status })
+  }
+
   // Create call log
   const { data: callLog, error: clErr } = await admin.database
     .from('call_logs')
@@ -74,13 +85,11 @@ export async function POST(request: Request) {
     .select()
 
   if (clErr || !callLog?.length) {
+    await admin.database.from('loads').update({ status: 'available' }).eq('id', load.id)
     return NextResponse.json({ error: clErr?.message || 'Failed to create call log' }, { status: 500 })
   }
 
   const callLogEntry = (callLog as Record<string, unknown>[])[0]
-
-  // Mark load as dispatching
-  await admin.database.from('loads').update({ status: 'dispatching' }).eq('id', load.id)
 
   // Make VAPI call
   const brokerPhone = normalizePhoneToE164(load.broker_phone)
