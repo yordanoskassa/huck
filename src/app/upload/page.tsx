@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
@@ -116,11 +116,7 @@ export default function UploadPage() {
         {!done && (
           <div className="mb-4 space-y-1.5">
             <Label htmlFor="doc-type">Document Type</Label>
-            <Select
-              items={DOC_TYPES}
-              value={uploadType}
-              onValueChange={(value) => value && setUploadType(value)}
-            >
+            <Select value={uploadType} onValueChange={(value) => value && setUploadType(value)}>
               <SelectTrigger id="doc-type" className="w-full">
                 <SelectValue />
               </SelectTrigger>
@@ -267,9 +263,15 @@ export default function UploadPage() {
               <Button onClick={handleReset} variant="outline" size="lg" className="flex-1 py-3 h-auto font-semibold">
                 Upload Another
               </Button>
-              <Button render={<Link href="/" />} size="lg" className="flex-1 py-3 h-auto font-semibold">
+              <Link
+                href="/"
+                className={buttonVariants({
+                  size: 'lg',
+                  className: 'flex-1 py-3 h-auto font-semibold',
+                })}
+              >
                 Back to HUCK Dashboard
-              </Button>
+              </Link>
             </div>
           </div>
         )}
