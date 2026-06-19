@@ -163,6 +163,48 @@ export async function POST(request: Request) {
   }
 
   if (messageType === 'status-update') {
+    const status = body.message?.status as string | undefined
+    const call = body.message?.call as Record<string, unknown> | undefined
+    const vapiCallId = call?.id as string | undefined
+    const endedReason = body.message?.endedReason as string | undefined
+
+    if (status === 'ended' && vapiCallId) {
+      const { data: callLog } = await admin.database
+        .from('call_logs')
+        .select('id, load_id, outcome')
+        .eq('vapi_call_id', vapiCallId)
+        .maybeSingle()
+
+      if (callLog) {
+        const cl = callLog as Record<string, unknown>
+        if (cl.outcome === 'in_progress' || cl.outcome === 'pending') {
+          let outcome = 'rejected'
+          if (endedReason === 'voicemail') outcome = 'voicemail'
+          else if (
+            endedReason === 'no-answer' ||
+            endedReason === 'busy' ||
+            endedReason === 'silence-timed-out' ||
+            endedReason === 'customer-did-not-answer'
+          ) {
+            outcome = 'no_answer'
+          }
+
+          await admin.database
+            .from('call_logs')
+            .update({
+              outcome,
+              ended_at: new Date().toISOString(),
+              summary: endedReason ? `Call ended: ${endedReason}` : null,
+            })
+            .eq('id', cl.id)
+
+          if (outcome !== 'accepted') {
+            await admin.database.from('loads').update({ status: 'available' }).eq('id', cl.load_id)
+          }
+        }
+      }
+    }
+
     return NextResponse.json({ ok: true })
   }
 

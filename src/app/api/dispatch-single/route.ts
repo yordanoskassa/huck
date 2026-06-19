@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/insforge'
 import { determineStrategy } from '@/lib/rate-engine'
 import { VAPI_BASE_URL } from '@/lib/constants'
+import { normalizePhoneToE164 } from '@/lib/phone-utils'
 import type { Load, Driver, SpotRate } from '@/lib/types'
 
 export async function POST(request: Request) {
@@ -82,6 +83,8 @@ export async function POST(request: Request) {
   await admin.database.from('loads').update({ status: 'dispatching' }).eq('id', load.id)
 
   // Make VAPI call
+  const brokerPhone = normalizePhoneToE164(load.broker_phone)
+
   try {
     const vapiResponse = await fetch(`${VAPI_BASE_URL}/call`, {
       method: 'POST',
@@ -92,7 +95,7 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         assistantId: process.env.VAPI_ASSISTANT_ID,
         phoneNumberId: process.env.VAPI_PHONE_NUMBER_ID,
-        customer: { number: load.broker_phone },
+        customer: { number: brokerPhone },
         assistantOverrides: {
           variableValues: {
             load_id: load.id,
@@ -140,7 +143,7 @@ export async function POST(request: Request) {
 
       if (isLimitError) {
         return NextResponse.json({
-          error: 'Daily call limit reached. Import your own Twilio number on VAPI to remove limits.',
+          error: 'VAPI free-number daily limit reached (10 outbound calls/day). It resets automatically — try again tomorrow.',
           limit_reached: true,
         }, { status: 429 })
       }

@@ -195,6 +195,15 @@ async function main() {
     : webhookBase + '/api/vapi-status'
 
   const patch = {
+    name: 'FreightNegotiator',
+    firstMessage:
+      'Hi, this is dispatch calling about your posted load from {{origin}} to {{destination}}. Is this still available?',
+    firstMessageMode: 'assistant-waits-for-user',
+    voicemailMessage:
+      'Hi, this is dispatch calling about a freight load. Please call us back when you have a moment.',
+    endCallMessage: 'Thanks for your time. We will follow up shortly. Have a good day.',
+    maxDurationSeconds: 300,
+    silenceTimeoutSeconds: 30,
     model: {
       ...current.model,
       messages: [{ role: 'system', content: SYSTEM_PROMPT }],

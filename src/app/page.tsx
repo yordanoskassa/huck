@@ -1,9 +1,11 @@
 'use client'
 
 import { useEffect, useState, useMemo, useCallback } from 'react'
+import dynamic from 'next/dynamic'
 import { insforge } from '@/lib/insforge-browser'
 import type { Load, SpotRate, CallLog, Driver, AcceptedLoad } from '@/lib/types'
 import { toast } from 'sonner'
+import { formatUserGreeting } from '@/lib/user-greeting'
 import {
   AlertCircle,
   BarChart3,
@@ -14,6 +16,7 @@ import {
   Phone,
   PhoneCall,
   RefreshCw,
+  Trash2,
   TrendingDown,
   Truck,
   Users,
@@ -35,6 +38,15 @@ import {
 } from './_components/negotiating-card'
 import { ConfirmedCard } from './_components/confirmed-card'
 
+const HuckFleetMap = dynamic(() => import('@/components/huck-fleet-map'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-[380px] items-center justify-center rounded-xl border border-border bg-muted/30">
+      <Loader2 className="size-5 animate-spin text-muted-foreground" />
+    </div>
+  ),
+})
+
 type Tab = 'listings' | 'negotiating' | 'confirmed'
 
 export default function HuckPage() {
@@ -52,6 +64,23 @@ export default function HuckPage() {
   const [ranking, setRanking] = useState(false)
   const [ranked, setRanked] = useState(false)
   const [showDriverPanel, setShowDriverPanel] = useState(true)
+  const [userName, setUserName] = useState<string | null>(null)
+  const [highlightedLoadId, setHighlightedLoadId] = useState<string | null>(null)
+  const [clearing, setClearing] = useState(false)
+
+  useEffect(() => {
+    insforge.auth.getCurrentUser().then(({ data }) => {
+      if (!data?.user) return
+      const u = data.user
+      const name =
+        u.profile?.name ||
+        (u.metadata as Record<string, unknown>)?.name ||
+        (u.metadata as Record<string, unknown>)?.full_name ||
+        u.email?.split('@')[0] ||
+        null
+      setUserName(name as string | null)
+    })
+  }, [])
 
   const fetchData = useCallback(async () => {
     const [loadsRes, spotRes, callRes, driverRes, acceptedRes] = await Promise.all([
@@ -88,7 +117,10 @@ export default function HuckPage() {
 
   useEffect(() => {
     if (activeTab !== 'negotiating') return
-    const interval = setInterval(fetchData, 5000)
+    const interval = setInterval(async () => {
+      await fetch('/api/sync-call-status', { method: 'POST' }).catch(() => {})
+      await fetchData()
+    }, 5000)
     return () => clearInterval(interval)
   }, [activeTab, fetchData])
 
@@ -157,7 +189,7 @@ export default function HuckPage() {
         await fetchData()
         setActiveTab('negotiating')
       } else if (data.limit_reached) {
-        toast.error('Daily call limit reached on VAPI. Import a Twilio number to continue.')
+        toast.error('VAPI free-number daily limit reached (10/day). Quota resets automatically.')
       } else {
         toast.error(data.error || 'Failed to initiate call')
       }
@@ -199,6 +231,36 @@ export default function HuckPage() {
       toast.error('Ranking failed: ' + String(err))
     } finally {
       setRanking(false)
+    }
+  }
+
+  async function handleClearDemo() {
+    if (
+      !window.confirm(
+        'Clear all fleet, loads, calls, and deals? This resets the demo to a fresh state.',
+      )
+    ) {
+      return
+    }
+    setClearing(true)
+    try {
+      const res = await fetch('/api/clear-demo', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) {
+        toast.error(data.error || 'Failed to clear demo data')
+        return
+      }
+      setRanked(false)
+      setSessionDispatchedIds(new Set())
+      setExpandedCallId(null)
+      setHighlightedLoadId(null)
+      setActiveTab('listings')
+      await fetchData()
+      toast.success('Demo reset complete')
+    } catch (err) {
+      toast.error('Clear failed: ' + String(err))
+    } finally {
+      setClearing(false)
     }
   }
 
@@ -290,13 +352,46 @@ export default function HuckPage() {
               )}
             </TabsTrigger>
           </TabsList>
-          <Button variant="outline" size="sm" onClick={() => fetchData()}>
-            <RefreshCw /> Refresh
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => fetchData()}>
+              <RefreshCw /> Refresh
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleClearDemo}
+              disabled={clearing}
+            >
+              {clearing ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <Trash2 />
+              )}
+              Clear All
+            </Button>
+            <a
+              href="/huck-hackathon-flowchart.svg"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+            >
+              <BarChart3 /> Architecture
+            </a>
+          </div>
         </div>
 
         {/* ── ALL LISTINGS ── */}
         <TabsContent value="listings" className="space-y-4">
+          {userName && (
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight">{formatUserGreeting(userName)}</h2>
+              <p className="text-sm text-muted-foreground">
+                {drivers.length > 0
+                  ? `${drivers.length} drivers synced · ${availableLoads.length} loads ready to rank`
+                  : 'Sync fleet from Motive and loads from DAT to get started'}
+              </p>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
             <StatCard label="Fleet Drivers" value={drivers.length} icon={Users} accent="info" />
             <StatCard label="Available Loads" value={availableLoads.length} icon={Package} />
@@ -320,6 +415,16 @@ export default function HuckPage() {
             />
             <StatCard label="Close Rate" value={`${closeRate}%`} icon={BarChart3} accent="info" />
           </div>
+
+          {drivers.length > 0 && (
+            <HuckFleetMap
+              drivers={drivers}
+              loads={loads.filter((l) => l.collected && l.status !== 'expired')}
+              highlightedLoadId={highlightedLoadId}
+              showAssignments={ranked}
+              className="h-[420px]"
+            />
+          )}
 
           {drivers.length > 0 && (
             <DriverFleetPanel
@@ -390,17 +495,22 @@ export default function HuckPage() {
               {availableLoads.map((load) => {
                 const assignedDriver = findDriver(load.assigned_driver_id)
                 return (
-                  <ListingCard
+                  <div
                     key={load.id}
-                    load={load}
-                    spot={findSpot(load)}
-                    opp={opportunityScore(load)}
-                    assignedDriver={assignedDriver}
-                    deadhead={assignedDriver ? driverDeadhead(assignedDriver, load) : null}
-                    existingCall={findCallForLoad(load.id)}
-                    isCalling={callingLoadId === load.id}
-                    onNegotiate={handleNegotiate}
-                  />
+                    onMouseEnter={() => setHighlightedLoadId(load.id)}
+                    onMouseLeave={() => setHighlightedLoadId(null)}
+                  >
+                    <ListingCard
+                      load={load}
+                      spot={findSpot(load)}
+                      opp={opportunityScore(load)}
+                      assignedDriver={assignedDriver}
+                      deadhead={assignedDriver ? driverDeadhead(assignedDriver, load) : null}
+                      existingCall={findCallForLoad(load.id)}
+                      isCalling={callingLoadId === load.id}
+                      onNegotiate={handleNegotiate}
+                    />
+                  </div>
                 )
               })}
             </div>
