@@ -1,36 +1,149 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# HUCK — AI Freight Negotiator
 
-## Getting Started
+HUCK is a multimodal AI dispatch tool that automates freight rate negotiation. It scrapes load listings from DAT, syncs driver data from Motive, ranks loads against your fleet, and deploys a voice AI agent to call brokers and negotiate rates — then summarizes every call with AI.
 
-First, run the development server:
+**Four modalities in one flow:** Vision (screenshot parsing) + Data (spot rate analysis) + Voice (AI broker calls) + Text (Gemini transcript summaries)
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Architecture
+
+```
+Motive (Fleet)  →  HUCK Dashboard  ←  DAT (Load Board)
+                       ↓
+                  Rate Engine
+               (posted vs spot)
+                       ↓
+                   VAPI Voice AI
+               (calls the broker)
+                       ↓
+               Gemini Transcript
+                  Summarizer
+                       ↓
+                 Outcome + Logs
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Stack
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Layer | Technology |
+|-------|-----------|
+| Frontend | Next.js 16 (App Router), Tailwind CSS, Lucide Icons |
+| Backend | InsForge (Postgres BaaS — database, auth, storage) |
+| Voice AI | VAPI (outbound calls, tool-calling assistant) |
+| Vision | OpenRouter via InsForge AI (DAT screenshot parsing) |
+| Summarization | Google Gemini 2.0 Flash (transcript analysis) |
+| Auth | Google OAuth via InsForge |
+| Maps | Leaflet + React-Leaflet (driver/load visualization) |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Pages
 
-## Learn More
+| Route | Description |
+|-------|-------------|
+| `/` | **HUCK Dashboard** — Main hub. Rank loads by driver proximity/cost, one-click negotiate, view call outcomes. |
+| `/loadboard` | **DAT One** (simulated) — Load board with search/filters. HUCK extension overlay syncs listings. |
+| `/motive` | **Motive** (simulated) — Fleet management with driver locations, HOS, equipment. Sync button pushes fleet data to HUCK. |
+| `/login` | Google OAuth sign-in |
+| `/calls` | Call history with transcripts, summaries, and outcomes |
+| `/upload` | Upload DAT screenshots for AI-powered load extraction |
+| `/map` | Leaflet map with driver locations and load origins |
 
-To learn more about Next.js, take a look at the following resources:
+## Demo Flow
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. **Sign in** with Google at `/login`
+2. **Sync fleet** — Go to `/motive`, click "Sync Fleet to HUCK"
+3. **Sync loads** — Go to `/loadboard`, click "Sync to HUCK" in the extension overlay
+4. **Rank loads** — Back on HUCK (`/`), click **"Rank Based on My Drivers"** — matches drivers to loads by equipment compatibility, deadhead distance, and cost efficiency
+5. **Negotiate** — Click **Negotiate** on any listing. HUCK's voice AI calls the broker to accept or negotiate the posted rate
+6. **Role-play** — Answer the call as the broker. Accept, counter, or reject
+7. **Review** — Check Negotiating tab for live call status, Confirmed tab for deals. Gemini auto-summarizes every transcript
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+> All broker phone numbers in seed data point to your own number for demo purposes.
 
-## Deploy on Vercel
+## API Routes
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/api/collect-listings` | POST | Marks DAT loads as collected (synced to HUCK) |
+| `/api/assign-drivers` | POST | Ranks and assigns drivers to loads by equipment, proximity, and cost |
+| `/api/dispatch-single` | POST | Initiates a VAPI voice call for a single load |
+| `/api/vapi-webhook` | POST | Handles VAPI tool calls during conversation (accept_load, counter_offer, defer_to_team) |
+| `/api/vapi-status` | POST | End-of-call reports. Detects acceptance from transcript. Triggers Gemini summary |
+| `/api/summarize-call` | POST | Gemini-powered transcript analysis — extracts rates, offers, outcome, sentiment |
+| `/api/parse-image` | POST | Vision AI — extracts structured load data from DAT screenshots |
+| `/api/loads` | GET | List loads |
+| `/api/drivers` | GET | List drivers |
+| `/api/call-logs` | GET | List call logs |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Rate Engine
+
+`src/lib/rate-engine.ts` — Compares posted rate against lane spot rates:
+
+- **Posted >= Spot High** → `accept` (take it immediately)
+- **Posted >= Spot Avg** → `accept`
+- **Posted < Spot Avg** → `negotiate` (target = spot average rate)
+
+## Driver Ranking Algorithm
+
+`/api/assign-drivers` scores each driver-load pair:
+
+1. **Equipment match** — Dry Van ↔ Dry Van, Flatbed ↔ Step Deck, etc.
+2. **Deadhead distance** — Haversine from driver location to load origin
+3. **Cost efficiency** — Posted rate / (deadhead + load miles)
+4. **Spot premium** — Bonus for lanes priced below spot average
+5. **HOS filter** — Minimum 4 hours remaining
+
+Best-paying loads get first pick of drivers. Each driver assigned once.
+
+## Database Tables
+
+| Table | Purpose |
+|-------|---------|
+| `drivers` | Fleet data (name, location, HOS, equipment, availability) |
+| `loads` | Load listings (origin/dest, rate, broker, equipment, status, assigned_driver_id) |
+| `spot_rates` | Market rates per lane (avg, high, low by equipment type) |
+| `call_logs` | Every VAPI call (strategy, rates, outcome, transcript, summary) |
+| `accepted_loads` | Confirmed deals |
+| `image_uploads` | Uploaded screenshots and parsed data |
+
+## Environment Variables
+
+```bash
+# InsForge
+NEXT_PUBLIC_INSFORGE_URL=
+NEXT_PUBLIC_INSFORGE_ANON_KEY=
+INSFORGE_API_KEY=
+
+# VAPI Voice AI
+VAPI_API_KEY=
+VAPI_ASSISTANT_ID=
+VAPI_PHONE_NUMBER_ID=
+
+# Google Gemini
+GEMINI_API_KEY=
+
+# App
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+```
+
+## Setup
+
+```bash
+npm install
+cp .env.example .env.local  # Fill in credentials
+npm run dev
+```
+
+For VAPI webhooks, expose localhost:
+
+```bash
+ngrok http 3000
+# Update VAPI assistant server URL to ngrok domain
+```
+
+## Fleet (Seed Data)
+
+| Driver | Base | Equipment |
+|--------|------|-----------|
+| Dawit Tesfaye | Atlanta, GA | Dry Van |
+| Gurpreet Singh | Dallas, TX | Reefer |
+| Bobby Ray Crawford | Memphis, TN | Dry Van |
+| Andrey Petrov | Chicago, IL | Dry Van |
+| Miguel Contreras | Los Angeles, CA | Flatbed |

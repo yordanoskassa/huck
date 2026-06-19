@@ -23,9 +23,10 @@ const EQUIP_MATCH: Record<string, string[]> = {
 export async function POST() {
   const admin = createServiceClient()
 
-  const [{ data: drivers }, { data: loads }] = await Promise.all([
+  const [{ data: drivers }, { data: loads }, { data: spotRates }] = await Promise.all([
     admin.database.from('drivers').select().eq('available', true),
     admin.database.from('loads').select().eq('status', 'available').eq('collected', true),
+    admin.database.from('spot_rates').select(),
   ])
 
   if (!drivers?.length || !loads?.length) {
@@ -34,26 +35,49 @@ export async function POST() {
 
   const availableDrivers = drivers as Driver[]
   const availableLoads = loads as Load[]
+  const spots = (spotRates || []) as { origin_city: string; origin_state: string; dest_city: string; dest_state: string; equipment_type: string; avg_rate: number }[]
   const usedDriverIds = new Set<string>()
-  let assigned = 0
+  const assignments: {
+    load_id: string
+    driver_id: string
+    driver_name: string
+    deadhead_miles: number
+    load_miles: number
+    rate: number
+    rate_per_mile: number
+    score: number
+  }[] = []
 
-  // Sort loads by posted_rate descending (best-paying loads get best drivers)
+  // Score each load-driver pair, rank by composite score
+  // Score = (rate_per_total_mile * 100) - (deadhead_penalty)
+  // Higher score = better assignment
   const sortedLoads = [...availableLoads].sort((a, b) => Number(b.posted_rate) - Number(a.posted_rate))
 
   for (const load of sortedLoads) {
-    // Find best matching driver: equipment match + closest to origin
+    const spot = spots.find(
+      (sr) => sr.origin_city === load.origin_city && sr.origin_state === load.origin_state &&
+        sr.dest_city === load.dest_city && sr.dest_state === load.dest_state &&
+        sr.equipment_type === load.equipment_type
+    )
+    const spotAvg = spot ? Number(spot.avg_rate) : Number(load.posted_rate)
+
     const compatible = availableDrivers
       .filter((d) => !usedDriverIds.has(d.id))
       .filter((d) => {
         const matchTypes = EQUIP_MATCH[load.equipment_type] || [load.equipment_type]
         return matchTypes.includes(d.trailer_type)
       })
-      .filter((d) => d.hos_remaining_hours >= 4) // min 4 hours HOS
-      .map((d) => ({
-        driver: d,
-        distance: haversineDistance(d.current_lat, d.current_lng, load.origin_lat, load.origin_lng),
-      }))
-      .sort((a, b) => a.distance - b.distance)
+      .filter((d) => d.hos_remaining_hours >= 4)
+      .map((d) => {
+        const deadhead = haversineDistance(d.current_lat, d.current_lng, load.origin_lat, load.origin_lng)
+        const totalMiles = deadhead + Number(load.miles)
+        const ratePerTotalMile = Number(load.posted_rate) / totalMiles
+        // Score: rate efficiency minus deadhead penalty, plus spot premium
+        const spotPremium = (spotAvg - Number(load.posted_rate)) > 0 ? (spotAvg - Number(load.posted_rate)) / 100 : 0
+        const score = ratePerTotalMile - (deadhead / 1000) + spotPremium
+        return { driver: d, deadhead: Math.round(deadhead), score, ratePerTotalMile }
+      })
+      .sort((a, b) => b.score - a.score)
 
     if (compatible.length > 0) {
       const best = compatible[0]
@@ -62,14 +86,25 @@ export async function POST() {
         .update({ assigned_driver_id: best.driver.id })
         .eq('id', load.id)
       usedDriverIds.add(best.driver.id)
-      assigned++
+
+      assignments.push({
+        load_id: load.id,
+        driver_id: best.driver.id,
+        driver_name: best.driver.name,
+        deadhead_miles: best.deadhead,
+        load_miles: Number(load.miles),
+        rate: Number(load.posted_rate),
+        rate_per_mile: best.ratePerTotalMile,
+        score: Math.round(best.score * 100),
+      })
     }
   }
 
   return NextResponse.json({
     success: true,
-    assigned,
+    assigned: assignments.length,
     total_loads: availableLoads.length,
     total_drivers: availableDrivers.length,
+    assignments,
   })
 }

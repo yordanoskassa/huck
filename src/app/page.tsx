@@ -51,6 +51,8 @@ export default function HuckPage() {
   const [summarizingId, setSummarizingId] = useState<string | null>(null)
   const [callError, setCallError] = useState<string | null>(null)
   const [userName, setUserName] = useState<string | null>(null)
+  const [ranking, setRanking] = useState(false)
+  const [ranked, setRanked] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -144,6 +146,34 @@ export default function HuckPage() {
     } finally {
       setSummarizingId(null)
     }
+  }
+
+  async function handleRankDrivers() {
+    setRanking(true)
+    try {
+      const res = await fetch('/api/assign-drivers', { method: 'POST' })
+      const data = await res.json()
+      if (data.success) {
+        setRanked(true)
+        await fetchData()
+      } else {
+        setCallError(data.error || 'No loads or drivers available to rank')
+      }
+    } catch (err) {
+      setCallError('Ranking failed: ' + String(err))
+    } finally {
+      setRanking(false)
+    }
+  }
+
+  function driverDeadhead(driver: Driver, load: Load): number {
+    const R = 3959
+    const dLat = ((load.origin_lat - driver.current_lat) * Math.PI) / 180
+    const dLng = ((load.origin_lng - driver.current_lng) * Math.PI) / 180
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos((driver.current_lat * Math.PI) / 180) * Math.cos((load.origin_lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2
+    return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)))
   }
 
   const availableLoads = useMemo(() => {
@@ -293,11 +323,36 @@ export default function HuckPage() {
             ))}
           </div>
 
+          {/* Rank Button */}
+          {availableLoads.length > 0 && !ranked && (
+            <button
+              onClick={handleRankDrivers}
+              disabled={ranking}
+              className="w-full mb-4 py-4 rounded-xl bg-emerald-600 text-white font-bold text-base hover:bg-emerald-700 transition-all active:scale-[0.99] flex items-center justify-center gap-3 shadow-lg shadow-emerald-600/20 disabled:opacity-60"
+            >
+              {ranking ? (
+                <><Loader2 className="h-5 w-5 animate-spin" /> Ranking loads by driver proximity &amp; cost...</>
+              ) : (
+                <><Truck className="h-5 w-5" /> Rank Based on My Drivers</>
+              )}
+            </button>
+          )}
+
+          {ranked && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3 mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="h-4 w-4 text-emerald-600" />
+                <p className="text-sm font-semibold text-emerald-700">Loads ranked and drivers assigned by proximity, destination distance &amp; cost</p>
+              </div>
+              <button onClick={() => { setRanked(false) }} className="text-emerald-400 hover:text-emerald-600 text-xs font-medium">Re-rank</button>
+            </div>
+          )}
+
           <div className="space-y-2">
             {availableLoads.length === 0 ? (
               <EmptyState
                 title="No listings collected"
-                subtitle="Go to the DAT Load Board and click Assign Drivers & Collect"
+                subtitle="Go to the DAT Load Board and sync listings first"
                 action={{ label: 'Open DAT', href: '/loadboard' }}
               />
             ) : (
@@ -357,17 +412,26 @@ export default function HuckPage() {
 
                         {/* Assigned driver */}
                         <div className="shrink-0 mr-2">
-                          {assignedDriver ? (
-                            <div className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-1.5">
-                              <div className="h-6 w-6 rounded-full bg-emerald-100 flex items-center justify-center text-[10px] font-bold text-emerald-700">
-                                {assignedDriver.name.split(' ').map((n) => n[0]).join('')}
+                          {assignedDriver ? (() => {
+                            const dh = driverDeadhead(assignedDriver, load)
+                            return (
+                              <div className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-1.5">
+                                <div className="h-6 w-6 rounded-full bg-emerald-100 flex items-center justify-center text-[10px] font-bold text-emerald-700">
+                                  {assignedDriver.name.split(' ').map((n) => n[0]).join('')}
+                                </div>
+                                <div>
+                                  <p className="text-xs font-semibold text-gray-700">{assignedDriver.name}</p>
+                                  <p className="text-[10px] text-gray-400">
+                                    {assignedDriver.current_city}, {assignedDriver.current_state}
+                                    <span className="text-gray-300 mx-1">&middot;</span>
+                                    <span className={clsx(dh < 100 ? 'text-emerald-500' : dh < 250 ? 'text-amber-500' : 'text-red-400')}>
+                                      {dh} mi deadhead
+                                    </span>
+                                  </p>
+                                </div>
                               </div>
-                              <div>
-                                <p className="text-xs font-semibold text-gray-700">{assignedDriver.name}</p>
-                                <p className="text-[10px] text-gray-400">{assignedDriver.current_city}, {assignedDriver.current_state}</p>
-                              </div>
-                            </div>
-                          ) : (
+                            )
+                          })() : (
                             <div className="flex items-center gap-1.5 text-xs text-gray-300 border border-dashed border-gray-200 rounded-lg px-3 py-2">
                               <User className="h-3 w-3" />
                               Unassigned
