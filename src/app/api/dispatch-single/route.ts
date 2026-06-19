@@ -5,7 +5,7 @@ import { VAPI_BASE_URL } from '@/lib/constants'
 import type { Load, Driver, SpotRate } from '@/lib/types'
 
 export async function POST(request: Request) {
-  const { load_id } = await request.json()
+  const { load_id, driver_id } = await request.json()
   if (!load_id) {
     return NextResponse.json({ error: 'load_id required' }, { status: 400 })
   }
@@ -22,17 +22,30 @@ export async function POST(request: Request) {
   }
   const load = loadData[0] as Load
 
-  // Get first available driver
-  const { data: driverData } = await admin.database
-    .from('drivers')
-    .select()
-    .eq('available', true)
-    .order('hos_remaining_hours', { ascending: false })
+  // Use assigned driver, explicit driver_id, or fallback to first available
+  const targetDriverId = driver_id || load.assigned_driver_id
+  let driver: Driver
 
-  if (!driverData?.length) {
-    return NextResponse.json({ error: 'No available drivers' }, { status: 400 })
+  if (targetDriverId) {
+    const { data: driverData } = await admin.database
+      .from('drivers')
+      .select()
+      .eq('id', targetDriverId)
+    if (!driverData?.length) {
+      return NextResponse.json({ error: 'Assigned driver not found' }, { status: 400 })
+    }
+    driver = driverData[0] as Driver
+  } else {
+    const { data: driverData } = await admin.database
+      .from('drivers')
+      .select()
+      .eq('available', true)
+      .order('hos_remaining_hours', { ascending: false })
+    if (!driverData?.length) {
+      return NextResponse.json({ error: 'No available drivers' }, { status: 400 })
+    }
+    driver = driverData[0] as Driver
   }
-  const driver = driverData[0] as Driver
 
   // Get spot rate
   const { data: spotData } = await admin.database

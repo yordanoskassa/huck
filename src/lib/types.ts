@@ -35,6 +35,7 @@ export interface Load {
   status: 'available' | 'dispatching' | 'accepted' | 'rejected' | 'expired'
   source: string
   collected: boolean
+  assigned_driver_id: string | null
   created_at: string
 }
 

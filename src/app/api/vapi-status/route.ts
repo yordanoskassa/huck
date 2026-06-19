@@ -63,6 +63,21 @@ export async function POST(request: Request) {
       .update(updateData)
       .eq('id', cl.id)
 
+    // Auto-summarize with Gemini if transcript exists
+    const finalTranscript = transcript || artifact?.transcript
+    if (finalTranscript) {
+      try {
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+        fetch(`${appUrl}/api/summarize-call`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ call_log_id: cl.id }),
+        }).catch(() => {}) // fire-and-forget
+      } catch {
+        // Non-blocking — don't fail the webhook
+      }
+    }
+
     return NextResponse.json({ ok: true })
   }
 
