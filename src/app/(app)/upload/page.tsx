@@ -2,7 +2,25 @@
 
 import { useState, useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, FileImage, CheckCircle, Loader2, AlertTriangle } from 'lucide-react'
+import { Upload, FileImage, CheckCircle, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Label } from '@/components/ui/label'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+
+const DOC_TYPES: Record<string, string> = {
+  dat_screenshot: 'DAT Screenshot',
+  bol: 'Bill of Lading',
+  rate_confirmation: 'Rate Confirmation',
+}
 
 export default function UploadPage() {
   const [file, setFile] = useState<File | null>(null)
@@ -13,7 +31,6 @@ export default function UploadPage() {
     parsed_data: unknown
     created_loads: unknown[]
   } | null>(null)
-  const [error, setError] = useState<string | null>(null)
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const f = acceptedFiles[0]
@@ -21,7 +38,6 @@ export default function UploadPage() {
       setFile(f)
       setPreview(URL.createObjectURL(f))
       setResult(null)
-      setError(null)
     }
   }, [])
 
@@ -34,7 +50,6 @@ export default function UploadPage() {
   async function handleUpload() {
     if (!file) return
     setLoading(true)
-    setError(null)
     setResult(null)
 
     const formData = new FormData()
@@ -48,12 +63,12 @@ export default function UploadPage() {
       })
       const data = await res.json()
       if (data.error) {
-        setError(data.error)
+        toast.error(data.error)
       } else {
         setResult(data)
       }
     } catch (err) {
-      setError(String(err))
+      toast.error(String(err))
     } finally {
       setLoading(false)
     }
@@ -61,97 +76,98 @@ export default function UploadPage() {
 
   return (
     <div>
-      <h2 className="text-xl font-semibold text-white mb-6">Upload & Parse</h2>
+      <h2 className="text-xl font-semibold text-foreground mb-6">Upload &amp; Parse</h2>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Upload area */}
         <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">Document Type</label>
-            <select
+          <div className="space-y-1.5">
+            <Label htmlFor="doc-type">Document Type</Label>
+            <Select
+              items={DOC_TYPES}
               value={uploadType}
-              onChange={(e) => setUploadType(e.target.value)}
-              className="w-full rounded-lg border border-gray-800 bg-gray-900 px-4 py-2.5 text-white focus:border-blue-500 focus:outline-none"
+              onValueChange={(value) => value && setUploadType(value)}
             >
-              <option value="dat_screenshot">DAT Screenshot</option>
-              <option value="bol">Bill of Lading</option>
-              <option value="rate_confirmation">Rate Confirmation</option>
-            </select>
+              <SelectTrigger id="doc-type" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(DOC_TYPES).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
-          <div
+          <Card
             {...getRootProps()}
-            className={`rounded-xl border-2 border-dashed p-12 text-center cursor-pointer transition-colors ${
+            className={cn(
+              'border-2 border-dashed p-12 text-center cursor-pointer transition-colors ring-0',
               isDragActive
-                ? 'border-blue-500 bg-blue-500/5'
-                : 'border-gray-700 hover:border-gray-600 bg-gray-900/50'
-            }`}
+                ? 'border-primary bg-primary/5'
+                : 'border-border hover:border-muted-foreground/50 bg-card'
+            )}
           >
             <input {...getInputProps()} />
-            <FileImage className="mx-auto h-10 w-10 text-gray-500 mb-3" />
+            <FileImage className="mx-auto h-10 w-10 text-muted-foreground mb-3" />
             {isDragActive ? (
-              <p className="text-sm text-blue-400">Drop the image here</p>
+              <p className="text-sm text-primary">Drop the image here</p>
             ) : (
               <>
-                <p className="text-sm text-gray-400">Drag & drop an image, or click to browse</p>
-                <p className="text-xs text-gray-600 mt-1">PNG, JPG, WebP</p>
+                <p className="text-sm text-muted-foreground">Drag &amp; drop an image, or click to browse</p>
+                <p className="text-xs text-muted-foreground/70 mt-1">PNG, JPG, WebP</p>
               </>
             )}
-          </div>
+          </Card>
 
           {preview && (
-            <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-3">
-              <img src={preview} alt="Preview" className="rounded-lg w-full max-h-64 object-contain" />
-              <div className="mt-3 flex items-center justify-between">
-                <p className="text-sm text-gray-400">{file?.name}</p>
-                <button
-                  onClick={handleUpload}
-                  disabled={loading}
-                  className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {loading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Upload className="h-4 w-4" />
-                  )}
-                  {loading ? 'Parsing with AI...' : 'Upload & Parse'}
-                </button>
-              </div>
-            </div>
+            <Card>
+              <CardContent>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={preview} alt="Preview" className="rounded-lg w-full max-h-64 object-contain" />
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <p className="text-sm text-muted-foreground truncate">{file?.name}</p>
+                  <Button onClick={handleUpload} disabled={loading} size="lg">
+                    {loading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="h-4 w-4" />
+                    )}
+                    {loading ? 'Parsing with AI...' : 'Upload & Parse'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           )}
         </div>
 
         {/* Results */}
         <div>
-          {error && (
-            <div className="rounded-xl border border-red-800 bg-red-900/20 p-5">
-              <div className="flex items-center gap-2 text-red-400 mb-2">
-                <AlertTriangle className="h-4 w-4" />
-                <span className="text-sm font-medium">Error</span>
-              </div>
-              <p className="text-sm text-red-300">{error}</p>
-            </div>
-          )}
-
           {result && (
             <div className="space-y-4">
               {result.created_loads && (result.created_loads as unknown[]).length > 0 && (
-                <div className="rounded-xl border border-green-800 bg-green-900/20 p-5">
-                  <div className="flex items-center gap-2 text-green-400 mb-2">
+                <Card>
+                  <CardContent className="flex items-center gap-2 text-success">
                     <CheckCircle className="h-4 w-4" />
                     <span className="text-sm font-medium">
                       {(result.created_loads as unknown[]).length} load(s) created
                     </span>
-                  </div>
-                </div>
+                  </CardContent>
+                </Card>
               )}
 
-              <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-5">
-                <h3 className="text-sm font-medium text-gray-400 mb-3">Extracted Data</h3>
-                <pre className="text-xs text-gray-300 overflow-auto max-h-96 bg-gray-800/50 rounded-lg p-4">
-                  {JSON.stringify(result.parsed_data, null, 2)}
-                </pre>
-              </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm text-muted-foreground">Extracted Data</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <pre className="text-xs text-foreground overflow-auto max-h-96 bg-muted rounded-lg p-4">
+                    {JSON.stringify(result.parsed_data, null, 2)}
+                  </pre>
+                </CardContent>
+              </Card>
             </div>
           )}
         </div>

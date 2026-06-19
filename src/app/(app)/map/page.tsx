@@ -31,22 +31,28 @@ export default function MapPage() {
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
-    setMounted(true)
-    Promise.all([
-      fetch('/api/drivers').then((r) => r.json()),
-      fetch('/api/loads?status=available').then((r) => r.json()),
-    ]).then(([d, l]) => {
+    let active = true
+    ;(async () => {
+      if (active) setMounted(true)
+      const [d, l] = await Promise.all([
+        fetch('/api/drivers').then((r) => r.json()),
+        fetch('/api/loads?status=available').then((r) => r.json()),
+      ])
+      if (!active) return
       if (Array.isArray(d)) setDrivers(d)
       if (Array.isArray(l)) setLoads(l)
-    })
+    })()
+    return () => {
+      active = false
+    }
   }, [])
 
   if (!mounted) {
     return (
       <div>
-        <h2 className="text-xl font-semibold text-white mb-6">Fleet Map</h2>
-        <div className="rounded-xl border border-gray-800 bg-gray-900/50 h-[600px] flex items-center justify-center">
-          <p className="text-gray-500">Loading map...</p>
+        <h2 className="text-xl font-semibold text-foreground mb-6">Fleet Map</h2>
+        <div className="rounded-xl border border-border bg-card h-[600px] flex items-center justify-center">
+          <p className="text-muted-foreground">Loading map...</p>
         </div>
       </div>
     )
@@ -54,9 +60,9 @@ export default function MapPage() {
 
   return (
     <div>
-      <h2 className="text-xl font-semibold text-white mb-6">Fleet Map</h2>
+      <h2 className="text-xl font-semibold text-foreground mb-6">Fleet Map</h2>
 
-      <div className="rounded-xl border border-gray-800 overflow-hidden h-[600px]">
+      <div className="rounded-xl border border-border overflow-hidden h-[600px]">
         <link
           rel="stylesheet"
           href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -123,13 +129,13 @@ export default function MapPage() {
         </MapContainer>
       </div>
 
-      <div className="mt-4 flex items-center gap-6 text-sm text-gray-400">
+      <div className="mt-4 flex items-center gap-6 text-sm text-muted-foreground">
         <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded-full bg-blue-500" />
+          <div className="h-3 w-3 rounded-full bg-info" />
           Drivers ({drivers.length})
         </div>
         <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded-full bg-amber-500" />
+          <div className="h-3 w-3 rounded-full bg-warning" />
           Available Loads ({loads.length})
         </div>
       </div>
