@@ -30,6 +30,7 @@ import {
   Truck,
   User,
   LogOut,
+  Camera,
 } from 'lucide-react'
 
 type Tab = 'listings' | 'negotiating' | 'confirmed'
@@ -235,6 +236,10 @@ export default function HuckPage() {
               <ExternalLink className="h-3 w-3" />
               DAT Load Board
             </a>
+            <a href="/upload" className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors">
+              <Camera className="h-3 w-3" />
+              Upload Screenshot
+            </a>
             <button
               onClick={() => fetchData()}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-200 transition-colors"
@@ -352,8 +357,9 @@ export default function HuckPage() {
             {availableLoads.length === 0 ? (
               <EmptyState
                 title="No listings collected"
-                subtitle="Go to the DAT Load Board and sync listings first"
+                subtitle="Sync listings from DAT or upload a screenshot"
                 action={{ label: 'Open DAT', href: '/loadboard' }}
+                secondaryAction={{ label: 'Upload Screenshot', href: '/upload' }}
               />
             ) : (
               availableLoads.map((load) => {
@@ -727,7 +733,7 @@ export default function HuckPage() {
   )
 }
 
-function EmptyState({ title, subtitle, action }: { title: string; subtitle: string; action?: { label: string; href: string } }) {
+function EmptyState({ title, subtitle, action, secondaryAction }: { title: string; subtitle: string; action?: { label: string; href: string }; secondaryAction?: { label: string; href: string } }) {
   return (
     <div className="text-center py-20">
       <div className="h-16 w-16 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-4">
@@ -735,11 +741,18 @@ function EmptyState({ title, subtitle, action }: { title: string; subtitle: stri
       </div>
       <p className="text-sm font-semibold text-gray-500">{title}</p>
       <p className="text-xs text-gray-400 mt-1">{subtitle}</p>
-      {action && (
-        <a href={action.href} className="inline-flex items-center gap-1.5 mt-4 px-4 py-2 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-bold hover:bg-emerald-100 transition-colors">
-          <ExternalLink className="h-3 w-3" /> {action.label}
-        </a>
-      )}
+      <div className="flex items-center justify-center gap-3 mt-4">
+        {action && (
+          <a href={action.href} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-bold hover:bg-emerald-100 transition-colors">
+            <ExternalLink className="h-3 w-3" /> {action.label}
+          </a>
+        )}
+        {secondaryAction && (
+          <a href={secondaryAction.href} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold hover:bg-gray-200 transition-colors">
+            <Camera className="h-3 w-3" /> {secondaryAction.label}
+          </a>
+        )}
+      </div>
     </div>
   )
 }
