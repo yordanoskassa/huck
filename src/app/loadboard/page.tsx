@@ -14,16 +14,6 @@ import {
   X,
   Zap,
   Download,
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  MapPin,
-  Calendar,
-  Truck,
-  Weight,
-  DollarSign,
-  Phone,
-  Building2,
 } from 'lucide-react'
 
 const DAT_BLUE = '#2857E0'
@@ -275,188 +265,81 @@ export default function LoadBoardPage() {
 
                         {/* ═══ EXPANDED DETAIL ROW ═══ */}
                         {isExpanded && (
-                          <tr key={`${load.id}-detail`} className="bg-[#f7f9fc]">
-                            <td colSpan={11} className="px-0 py-0">
-                              <div className="px-6 py-5 border-b-2" style={{ borderColor: DAT_BLUE + '30' }}>
-                                <div className="grid grid-cols-3 gap-6">
-                                  {/* Column 1: Load Details */}
-                                  <div>
-                                    <h4 className="text-xs font-bold uppercase tracking-wider text-[#5a6872] mb-3 flex items-center gap-1.5">
-                                      <Truck className="h-3.5 w-3.5" />
-                                      Load Details
-                                    </h4>
-                                    <div className="space-y-2.5">
-                                      <div className="flex items-start gap-3">
-                                        <MapPin className="h-3.5 w-3.5 text-[#8d969e] mt-0.5 shrink-0" />
-                                        <div>
-                                          <p className="text-xs text-[#8d969e]">Origin</p>
-                                          <p className="text-sm font-semibold text-[#1a1a1a]">{load.origin_city}, {load.origin_state}</p>
-                                        </div>
-                                      </div>
-                                      <div className="flex items-start gap-3">
-                                        <MapPin className="h-3.5 w-3.5 text-[#8d969e] mt-0.5 shrink-0" />
-                                        <div>
-                                          <p className="text-xs text-[#8d969e]">Destination</p>
-                                          <p className="text-sm font-semibold text-[#1a1a1a]">{load.dest_city}, {load.dest_state}</p>
-                                        </div>
-                                      </div>
-                                      <div className="flex items-start gap-3">
-                                        <Calendar className="h-3.5 w-3.5 text-[#8d969e] mt-0.5 shrink-0" />
-                                        <div>
-                                          <p className="text-xs text-[#8d969e]">Pickup Date</p>
-                                          <p className="text-sm font-semibold text-[#1a1a1a]">{format(new Date(load.pickup_date), 'EEEE, MMM d, yyyy')}</p>
-                                        </div>
-                                      </div>
-                                      <div className="grid grid-cols-2 gap-3 mt-1">
-                                        <div className="flex items-start gap-3">
-                                          <Truck className="h-3.5 w-3.5 text-[#8d969e] mt-0.5 shrink-0" />
-                                          <div>
-                                            <p className="text-xs text-[#8d969e]">Equipment</p>
-                                            <p className="text-sm font-semibold text-[#1a1a1a]">{load.equipment_type}</p>
-                                          </div>
-                                        </div>
-                                        <div className="flex items-start gap-3">
-                                          <Weight className="h-3.5 w-3.5 text-[#8d969e] mt-0.5 shrink-0" />
-                                          <div>
-                                            <p className="text-xs text-[#8d969e]">Weight</p>
-                                            <p className="text-sm font-semibold text-[#1a1a1a]">{load.weight ? `${load.weight.toLocaleString()} lbs` : 'Not specified'}</p>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  {/* Column 2: Rate & Spot Data */}
-                                  <div>
-                                    <h4 className="text-xs font-bold uppercase tracking-wider text-[#5a6872] mb-3 flex items-center gap-1.5">
-                                      <DollarSign className="h-3.5 w-3.5" />
-                                      Rate Analysis
-                                    </h4>
-                                    <div className="bg-white rounded-lg border border-[#e0e3e6] p-4">
-                                      <div className="flex items-baseline justify-between mb-3">
-                                        <div>
-                                          <p className="text-xs text-[#8d969e]">Posted Rate</p>
-                                          <p className="text-2xl font-black text-[#1a1a1a]">${posted.toLocaleString()}</p>
-                                        </div>
-                                        <div className="text-right">
-                                          <p className="text-xs text-[#8d969e]">Per Mile</p>
-                                          <p className="text-lg font-bold text-[#1a1a1a]">${Number(load.rate_per_mile).toFixed(2)}</p>
-                                        </div>
-                                      </div>
-
-                                      {spot ? (
-                                        <>
-                                          <div className="border-t border-[#ebedf0] pt-3 mt-3">
-                                            <p className="text-[10px] uppercase tracking-wider text-[#8d969e] font-bold mb-2">DAT Spot Rates (7-day avg)</p>
-                                            <div className="grid grid-cols-3 gap-2">
-                                              <div className="bg-[#f0fdf4] rounded-md px-3 py-2 text-center">
-                                                <p className="text-[9px] uppercase text-[#5a6872] font-bold">Low</p>
-                                                <p className="text-sm font-bold text-[#1a1a1a]">${spotLow?.toLocaleString()}</p>
-                                              </div>
-                                              <div className="rounded-md px-3 py-2 text-center" style={{ backgroundColor: DAT_BLUE + '10' }}>
-                                                <p className="text-[9px] uppercase font-bold" style={{ color: DAT_BLUE }}>Avg</p>
-                                                <p className="text-sm font-bold" style={{ color: DAT_BLUE }}>${spotAvg?.toLocaleString()}</p>
-                                              </div>
-                                              <div className="bg-[#fef3c7] rounded-md px-3 py-2 text-center">
-                                                <p className="text-[9px] uppercase text-[#5a6872] font-bold">High</p>
-                                                <p className="text-sm font-bold text-[#1a1a1a]">${spotHigh?.toLocaleString()}</p>
-                                              </div>
-                                            </div>
-                                          </div>
-
-                                          {/* Rate vs Spot comparison */}
-                                          <div className="border-t border-[#ebedf0] pt-3 mt-3">
-                                            <div className="flex items-center justify-between">
-                                              <span className="text-xs text-[#5a6872]">vs Spot Avg</span>
-                                              <span className={clsx(
-                                                'inline-flex items-center gap-1 text-sm font-bold',
-                                                diff !== null && diff < 0 ? 'text-[#0d7c3d]' : diff !== null && diff > 0 ? 'text-[#dc2626]' : 'text-[#5a6872]'
-                                              )}>
-                                                {diff !== null && diff < 0 && <TrendingDown className="h-3.5 w-3.5" />}
-                                                {diff !== null && diff > 0 && <TrendingUp className="h-3.5 w-3.5" />}
-                                                {diff !== null && diff === 0 && <Minus className="h-3.5 w-3.5" />}
-                                                {diff !== null ? `${diff > 0 ? '+' : ''}$${diff.toFixed(0)}` : '--'}
-                                                {diffPct !== null && (
-                                                  <span className="text-[10px] font-medium text-[#8d969e] ml-1">
-                                                    ({diffPct > 0 ? '+' : ''}{diffPct.toFixed(1)}%)
-                                                  </span>
-                                                )}
-                                              </span>
-                                            </div>
-
-                                            {/* Visual bar */}
-                                            {spotAvg && spotLow && spotHigh && (
-                                              <div className="mt-3 relative">
-                                                <div className="h-2 bg-[#e5e7eb] rounded-full relative overflow-visible">
-                                                  {/* Spot range fill */}
-                                                  <div
-                                                    className="absolute h-full rounded-full"
-                                                    style={{
-                                                      backgroundColor: DAT_BLUE + '30',
-                                                      left: '10%',
-                                                      right: '10%',
-                                                    }}
-                                                  />
-                                                  {/* Posted rate marker */}
-                                                  <div
-                                                    className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 border-white shadow-md"
-                                                    style={{
-                                                      backgroundColor: posted < spotAvg ? '#0d7c3d' : posted > spotAvg ? '#dc2626' : DAT_BLUE,
-                                                      left: `${Math.max(5, Math.min(95, ((posted - spotLow) / (spotHigh - spotLow)) * 80 + 10))}%`,
-                                                    }}
-                                                  />
-                                                </div>
-                                                <div className="flex justify-between mt-1 text-[9px] text-[#8d969e]">
-                                                  <span>${spotLow.toLocaleString()}</span>
-                                                  <span>${spotHigh.toLocaleString()}</span>
-                                                </div>
-                                              </div>
-                                            )}
-                                          </div>
-                                        </>
-                                      ) : (
-                                        <div className="border-t border-[#ebedf0] pt-3 mt-3">
-                                          <p className="text-xs text-[#8d969e] italic">No spot rate data available for this lane</p>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-
-                                  {/* Column 3: Broker Info */}
-                                  <div>
-                                    <h4 className="text-xs font-bold uppercase tracking-wider text-[#5a6872] mb-3 flex items-center gap-1.5">
-                                      <Building2 className="h-3.5 w-3.5" />
-                                      Broker Information
-                                    </h4>
-                                    <div className="space-y-3">
-                                      <div className="bg-white rounded-lg border border-[#e0e3e6] p-4">
-                                        <p className="font-bold text-[#1a1a1a] text-sm">{load.broker_name}</p>
-                                        <div className="flex items-center gap-2 mt-2">
-                                          <Phone className="h-3.5 w-3.5 text-[#8d969e]" />
-                                          <span className="text-sm text-[#5a6872]">{load.broker_phone}</span>
-                                        </div>
-                                      </div>
-
-                                      <div className="bg-white rounded-lg border border-[#e0e3e6] p-4">
-                                        <p className="text-xs text-[#8d969e] mb-1">Source</p>
-                                        <p className="text-sm font-semibold text-[#1a1a1a]">{load.source || 'DAT Load Board'}</p>
-                                      </div>
-
-                                      <div className="bg-white rounded-lg border border-[#e0e3e6] p-4">
-                                        <p className="text-xs text-[#8d969e] mb-1">Status</p>
-                                        <span className={clsx(
-                                          'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold',
-                                          load.status === 'available' ? 'bg-green-100 text-green-700' :
-                                          load.status === 'dispatching' ? 'bg-amber-100 text-amber-700' :
-                                          load.status === 'accepted' ? 'bg-blue-100 text-blue-700' :
-                                          'bg-gray-100 text-gray-700'
-                                        )}>
-                                          {load.status.charAt(0).toUpperCase() + load.status.slice(1)}
-                                        </span>
-                                      </div>
-                                    </div>
+                          <tr key={`${load.id}-detail`}>
+                            <td colSpan={11} className="p-0">
+                              <div className="bg-white border-b border-[#d9dde1]">
+                                {/* Top section: load info row */}
+                                <div className="px-6 py-4 flex gap-10 border-b border-[#ebedf0]">
+                                  <div className="flex-1">
+                                    <table className="text-sm w-full">
+                                      <tbody>
+                                        <tr>
+                                          <td className="py-1.5 pr-6 text-[#8d969e] text-xs font-medium align-top whitespace-nowrap">Origin</td>
+                                          <td className="py-1.5 text-[#1a1a1a] font-semibold">{load.origin_city}, {load.origin_state}</td>
+                                          <td className="py-1.5 pr-6 text-[#8d969e] text-xs font-medium align-top whitespace-nowrap pl-10">Destination</td>
+                                          <td className="py-1.5 text-[#1a1a1a] font-semibold">{load.dest_city}, {load.dest_state}</td>
+                                        </tr>
+                                        <tr>
+                                          <td className="py-1.5 pr-6 text-[#8d969e] text-xs font-medium align-top whitespace-nowrap">Pickup</td>
+                                          <td className="py-1.5 text-[#1a1a1a]">{format(new Date(load.pickup_date), 'EEE, MMM d, yyyy')}</td>
+                                          <td className="py-1.5 pr-6 text-[#8d969e] text-xs font-medium align-top whitespace-nowrap pl-10">Distance</td>
+                                          <td className="py-1.5 text-[#1a1a1a]">{load.miles} miles</td>
+                                        </tr>
+                                        <tr>
+                                          <td className="py-1.5 pr-6 text-[#8d969e] text-xs font-medium align-top whitespace-nowrap">Equipment</td>
+                                          <td className="py-1.5 text-[#1a1a1a]">{load.equipment_type}</td>
+                                          <td className="py-1.5 pr-6 text-[#8d969e] text-xs font-medium align-top whitespace-nowrap pl-10">Weight</td>
+                                          <td className="py-1.5 text-[#1a1a1a]">{load.weight ? `${load.weight.toLocaleString()} lbs` : 'Not specified'}</td>
+                                        </tr>
+                                        <tr>
+                                          <td className="py-1.5 pr-6 text-[#8d969e] text-xs font-medium align-top whitespace-nowrap">Company</td>
+                                          <td className="py-1.5 font-semibold" style={{ color: DAT_BLUE }}>{load.broker_name}</td>
+                                          <td className="py-1.5 pr-6 text-[#8d969e] text-xs font-medium align-top whitespace-nowrap pl-10">Phone</td>
+                                          <td className="py-1.5 text-[#1a1a1a]">{load.broker_phone}</td>
+                                        </tr>
+                                      </tbody>
+                                    </table>
                                   </div>
                                 </div>
+
+                                {/* Bottom section: spot rate strip */}
+                                {spot && (
+                                  <div className="px-6 py-3 bg-[#f7f8fa]">
+                                    <div className="flex items-center gap-8">
+                                      <span className="text-[11px] font-bold uppercase tracking-wider text-[#5a6872] whitespace-nowrap">Spot Rate</span>
+                                      <div className="flex items-center gap-6 text-sm">
+                                        <span className="text-[#8d969e] text-xs">Low <span className="font-semibold text-[#1a1a1a] ml-1">${spotLow?.toLocaleString()}</span></span>
+                                        <span className="font-bold" style={{ color: DAT_BLUE }}>Avg <span className="ml-1">${spotAvg?.toLocaleString()}</span></span>
+                                        <span className="text-[#8d969e] text-xs">High <span className="font-semibold text-[#1a1a1a] ml-1">${spotHigh?.toLocaleString()}</span></span>
+                                      </div>
+                                      <div className="flex-1 flex items-center gap-3">
+                                        {/* Simple range bar */}
+                                        <div className="flex-1 relative h-1.5 bg-[#e5e7eb] rounded-full">
+                                          <div
+                                            className="absolute h-full rounded-full"
+                                            style={{ backgroundColor: DAT_BLUE + '25', left: '15%', right: '15%' }}
+                                          />
+                                          {spotLow !== null && spotHigh !== null && (
+                                            <div
+                                              className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 border-white"
+                                              style={{
+                                                backgroundColor: posted <= (spotAvg ?? 0) ? '#0d7c3d' : '#b35c00',
+                                                left: `${Math.max(5, Math.min(95, ((posted - spotLow) / (spotHigh - spotLow)) * 70 + 15))}%`,
+                                              }}
+                                              title={`Posted: $${posted.toLocaleString()}`}
+                                            />
+                                          )}
+                                        </div>
+                                      </div>
+                                      <span className={clsx(
+                                        'text-xs font-semibold whitespace-nowrap',
+                                        diff !== null && diff <= 0 ? 'text-[#0d7c3d]' : 'text-[#b35c00]'
+                                      )}>
+                                        {diff !== null ? `${diff > 0 ? '+' : ''}$${diff.toFixed(0)} vs avg` : ''}
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             </td>
                           </tr>
