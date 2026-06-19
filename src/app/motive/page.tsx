@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import { insforge } from '@/lib/insforge-browser'
 import { clsx } from 'clsx'
 import type { Driver } from '@/lib/types'
+import Link from 'next/link'
 import {
   RefreshCw,
   ChevronDown,
@@ -19,6 +20,7 @@ import {
   Activity,
   CheckCircle,
   XCircle,
+  Zap,
 } from 'lucide-react'
 
 const DriverMap = dynamic(() => import('./driver-map'), { ssr: false })
@@ -154,6 +156,8 @@ export default function MotivePage() {
   const [activeTab, setActiveTab] = useState<Tab>('overview')
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [huckSyncing, setHuckSyncing] = useState(false)
+  const [huckSynced, setHuckSynced] = useState(false)
 
   const fetchData = useCallback(async () => {
     const { data } = await insforge.database.from('drivers').select().order('name', { ascending: true })
@@ -740,6 +744,96 @@ export default function MotivePage() {
           </div>
         </div>
       )}
+
+      {/* ═══ HUCK SYNC FLOATING PANEL ═══ */}
+      <div className="fixed bottom-5 right-5 z-50">
+        <div className="bg-[#111827] rounded-xl shadow-2xl border border-[#2d3748] w-[280px] overflow-hidden">
+          {/* Header pill */}
+          <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[#2d3748]">
+            <div className="flex items-center justify-center h-5 w-5 rounded bg-emerald-500/20">
+              <Zap className="h-3 w-3 text-emerald-400" />
+            </div>
+            <span className="text-xs font-bold text-white tracking-wide">HUCK</span>
+            <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Connected
+            </span>
+          </div>
+
+          {/* Body */}
+          <div className="px-4 py-3">
+            {/* Synced drivers count */}
+            <div className="flex items-center gap-2 mb-3">
+              <div className="flex -space-x-1.5">
+                {drivers.slice(0, 3).map((d, i) => (
+                  <div
+                    key={d.id}
+                    className="h-5 w-5 rounded-full bg-emerald-600 border-2 border-[#111827] flex items-center justify-center text-[8px] font-bold text-white"
+                  >
+                    {d.name.split(' ').map((n) => n[0]).join('')}
+                  </div>
+                ))}
+                {drivers.length > 3 && (
+                  <div className="h-5 w-5 rounded-full bg-[#374151] border-2 border-[#111827] flex items-center justify-center text-[8px] font-bold text-gray-300">
+                    +{drivers.length - 3}
+                  </div>
+                )}
+              </div>
+              <span className="text-xs text-gray-300">
+                <span className="font-semibold text-white">{drivers.length}</span> drivers synced
+              </span>
+            </div>
+
+            {/* Sync button / result */}
+            {huckSynced ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2">
+                  <CheckCircle className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                  <span className="text-[11px] text-emerald-300 font-medium leading-tight">
+                    Fleet synced! Go to DAT to assign loads.
+                  </span>
+                </div>
+                <Link
+                  href="/loadboard"
+                  className="flex items-center justify-center gap-1.5 w-full px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-[11px] font-bold text-white transition-colors"
+                >
+                  <Zap className="h-3 w-3" />
+                  Open DAT Loadboard
+                </Link>
+              </div>
+            ) : (
+              <button
+                onClick={() => {
+                  setHuckSyncing(true)
+                  setTimeout(() => {
+                    setHuckSyncing(false)
+                    setHuckSynced(true)
+                  }, 1800)
+                }}
+                disabled={huckSyncing}
+                className={clsx(
+                  'flex items-center justify-center gap-1.5 w-full px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all',
+                  huckSyncing
+                    ? 'bg-emerald-500/20 text-emerald-400 cursor-wait'
+                    : 'bg-emerald-500 hover:bg-emerald-400 text-white'
+                )}
+              >
+                {huckSyncing ? (
+                  <>
+                    <RefreshCw className="h-3 w-3 animate-spin" />
+                    Syncing fleet...
+                  </>
+                ) : (
+                  <>
+                    <Zap className="h-3 w-3" />
+                    Sync Fleet to HUCK
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
