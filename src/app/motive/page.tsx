@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import dynamic from 'next/dynamic'
 import { insforge } from '@/lib/insforge-browser'
 import { clsx } from 'clsx'
 import type { Driver } from '@/lib/types'
@@ -19,6 +20,8 @@ import {
   CheckCircle,
   XCircle,
 } from 'lucide-react'
+
+const DriverMap = dynamic(() => import('./driver-map'), { ssr: false })
 
 const MOTIVE_BLUE = '#1a56db'
 const MOTIVE_DARK = '#111827'
@@ -143,7 +146,7 @@ function HOSGauge({ remaining, total }: { remaining: number; total: number }) {
   )
 }
 
-type Tab = 'overview' | 'logs' | 'drivers' | 'vehicles'
+type Tab = 'overview' | 'logs' | 'drivers' | 'vehicles' | 'map'
 
 export default function MotivePage() {
   const [drivers, setDrivers] = useState<Driver[]>([])
@@ -229,6 +232,7 @@ export default function MotivePage() {
               { id: 'logs' as Tab, label: 'Logs' },
               { id: 'drivers' as Tab, label: 'Drivers' },
               { id: 'vehicles' as Tab, label: 'Vehicles' },
+              { id: 'map' as Tab, label: 'Live Map' },
             ]).map((tab) => (
               <button
                 key={tab.id}
@@ -666,6 +670,21 @@ export default function MotivePage() {
             </table>
             <div className="bg-[#f9fafb] border-t border-[#e5e7eb] px-4 py-2 text-xs text-[#6b7280]">
               {drivers.length} drivers &middot; {activeDrivers} active
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ LIVE MAP TAB ═══ */}
+      {activeTab === 'map' && (
+        <div className="px-6 py-5">
+          <div className="bg-white rounded-lg border border-[#e5e7eb] overflow-hidden">
+            <div className="px-4 py-3 border-b border-[#e5e7eb] bg-[#f9fafb] flex items-center justify-between">
+              <h3 className="text-sm font-bold text-[#111827]">Live Fleet Tracking</h3>
+              <span className="text-xs text-[#6b7280]">{activeDrivers} active &middot; {drivers.length - activeDrivers} parked</span>
+            </div>
+            <div className="h-[600px]">
+              <DriverMap drivers={drivers} />
             </div>
           </div>
         </div>
