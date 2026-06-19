@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import { createBrowserClient } from '@/lib/insforge-browser'
+import { insforge } from '@/lib/insforge-browser'
 import { clsx } from 'clsx'
 import type { Load, SpotRate } from '@/lib/types'
 import { format, formatDistanceToNowStrict } from 'date-fns'
@@ -44,12 +44,12 @@ export default function LoadBoardPage() {
   // Expanded row
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
-  const insforge = createBrowserClient()
+  const client = insforge
 
   async function fetchData() {
     const [loadsRes, spotRes] = await Promise.all([
-      insforge.database.from('loads').select().order('created_at', { ascending: false }),
-      insforge.database.from('spot_rates').select(),
+      client.database.from('loads').select().order('created_at', { ascending: false }),
+      client.database.from('spot_rates').select(),
     ])
     setLoads((loadsRes.data || []) as Load[])
     setSpotRates((spotRes.data || []) as SpotRate[])
