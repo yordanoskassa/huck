@@ -3,13 +3,13 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { insforge } from '@/lib/insforge-browser'
 import { clsx } from 'clsx'
-import type { Load, SpotRate, CallLog } from '@/lib/types'
+import type { Load, SpotRate, CallLog, Driver } from '@/lib/types'
 import { format } from 'date-fns'
 import {
   ArrowRight,
   Phone,
   PhoneCall,
-  CheckCircle,
+  CheckCircle2,
   Loader2,
   Zap,
   TrendingDown,
@@ -25,53 +25,71 @@ import {
   AlertCircle,
   MessageSquare,
   DollarSign,
+  Truck,
+  MapPin,
+  FileText,
+  BarChart3,
+  User,
+  Sparkles,
 } from 'lucide-react'
-
-const HUCK_GREEN = '#10b981'
 
 type Tab = 'listings' | 'negotiating' | 'confirmed'
 
 const EQUIP_CODE: Record<string, string> = {
-  'Dry Van': 'V', Reefer: 'R', Flatbed: 'F', 'Step Deck': 'SD', 'Power Only': 'PO',
+  'Dry Van': 'V',
+  Reefer: 'R',
+  Flatbed: 'F',
+  'Step Deck': 'SD',
+  'Power Only': 'PO',
 }
 
 export default function HuckPage() {
   const [loads, setLoads] = useState<Load[]>([])
   const [spotRates, setSpotRates] = useState<SpotRate[]>([])
   const [callLogs, setCallLogs] = useState<CallLog[]>([])
+  const [drivers, setDrivers] = useState<Driver[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<Tab>('listings')
   const [callingLoadId, setCallingLoadId] = useState<string | null>(null)
   const [expandedCallId, setExpandedCallId] = useState<string | null>(null)
-  // Track which load IDs have been dispatched in THIS session
   const [sessionDispatchedIds, setSessionDispatchedIds] = useState<Set<string>>(new Set())
+  const [summarizingCallId, setSummarizingCallId] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
-    const [loadsRes, spotRes, callRes] = await Promise.all([
+    const [loadsRes, spotRes, callRes, driversRes] = await Promise.all([
       insforge.database.from('loads').select().eq('collected', true).order('created_at', { ascending: false }),
       insforge.database.from('spot_rates').select(),
       insforge.database.from('call_logs').select().order('created_at', { ascending: false }),
+      insforge.database.from('drivers').select(),
     ])
     setLoads((loadsRes.data || []) as Load[])
     setSpotRates((spotRes.data || []) as SpotRate[])
     setCallLogs((callRes.data || []) as CallLog[])
+    setDrivers((driversRes.data || []) as Driver[])
   }, [])
 
   useEffect(() => {
     fetchData().finally(() => setLoading(false))
   }, [fetchData])
 
-  // Poll when on negotiating tab
   useEffect(() => {
     if (activeTab !== 'negotiating') return
     const interval = setInterval(fetchData, 5000)
     return () => clearInterval(interval)
   }, [activeTab, fetchData])
 
+  function findDriver(driverId: string | null): Driver | undefined {
+    if (!driverId) return undefined
+    return drivers.find((d) => d.id === driverId)
+  }
+
   function findSpot(load: Load): SpotRate | undefined {
     return spotRates.find(
-      (sr) => sr.origin_city === load.origin_city && sr.origin_state === load.origin_state &&
-        sr.dest_city === load.dest_city && sr.dest_state === load.dest_state &&
+      (sr) =>
+        sr.origin_city === load.origin_city &&
+        sr.origin_state === load.origin_state &&
+        sr.dest_city === load.dest_city &&
+        sr.dest_state === load.dest_state &&
         sr.equipment_type === load.equipment_type
     )
   }
@@ -105,33 +123,49 @@ export default function HuckPage() {
     }
   }
 
-  // ── Sort listings by opportunity (best deals first) ──
+  async function handleSummarize(callLogId: string) {
+    setSummarizingCallId(callLogId)
+    try {
+      const res = await fetch('/api/summarize-call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ call_log_id: callLogId }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        await fetchData()
+      } else {
+        alert(data.error || 'Summarization failed')
+      }
+    } catch (err) {
+      alert('Summarize failed: ' + String(err))
+    } finally {
+      setSummarizingCallId(null)
+    }
+  }
+
   const availableLoads = useMemo(() => {
     return loads
       .filter((l) => l.status === 'available')
       .sort((a, b) => opportunityScore(b) - opportunityScore(a))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loads, spotRates])
 
-  // ── Active negotiations: only calls dispatched THIS session that are still active ──
   const negotiatingCalls = callLogs.filter(
     (c) => (c.outcome === 'in_progress' || c.outcome === 'pending') && sessionDispatchedIds.has(c.load_id)
   )
   const dispatchingLoads = loads.filter(
     (l) => l.status === 'dispatching' && sessionDispatchedIds.has(l.id)
   )
-
-  // ── Pending review (broker offered between posted and spot, deferred to team) ──
   const pendingReviewCalls = callLogs.filter((c) => c.outcome === 'pending_review')
-
-  // ── Confirmed deals ──
   const confirmedCalls = callLogs.filter((c) => c.outcome === 'accepted')
-
-  // ── Recent ended calls (from this session) ──
   const recentEndedCalls = callLogs.filter(
-    (c) => (c.outcome === 'rejected' || c.outcome === 'no_answer' || c.outcome === 'voicemail' || c.outcome === 'error')
-      && sessionDispatchedIds.has(c.load_id)
+    (c) =>
+      (c.outcome === 'rejected' || c.outcome === 'no_answer' || c.outcome === 'voicemail' || c.outcome === 'error') &&
+      sessionDispatchedIds.has(c.load_id)
   )
+
+  const belowSpotCount = availableLoads.filter((l) => opportunityScore(l) > 0).length
 
   const tabCounts: Record<Tab, number> = {
     listings: availableLoads.length,
@@ -141,56 +175,67 @@ export default function HuckPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+      <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
-          <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center mx-auto mb-4 animate-pulse">
+          <div className="h-12 w-12 rounded-xl bg-emerald-600 flex items-center justify-center mx-auto mb-4 animate-pulse">
             <Zap className="h-6 w-6 text-white" />
           </div>
-          <p className="text-sm text-[#888]">Loading HUCK...</p>
+          <p className="text-sm text-gray-500 font-medium">Loading HUCK...</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white">
-      {/* ═══ HEADER ═══ */}
-      <div className="border-b border-[#1a1a1a] bg-[#0f0f0f]">
+    <div className="min-h-screen bg-[#f8f9fa]">
+      {/* ── HEADER ── */}
+      <header className="bg-white border-b border-[#e5e7eb]">
         <div className="px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+            <div className="h-10 w-10 rounded-xl bg-emerald-600 flex items-center justify-center">
               <Zap className="h-5 w-5 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-black tracking-tight">HUCK</h1>
-              <p className="text-[11px] text-[#666] -mt-0.5">AI Freight Negotiator</p>
+              <h1 className="text-xl font-extrabold tracking-tight text-gray-900">HUCK</h1>
+              <p className="text-[11px] text-gray-400 font-medium -mt-0.5">AI Freight Negotiator</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <a href="/loadboard" className="flex items-center gap-1.5 text-xs text-[#666] hover:text-[#aaa] transition-colors">
-              <ExternalLink className="h-3 w-3" />
+          <div className="flex items-center gap-2">
+            <a
+              href="/loadboard"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition-colors"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
               DAT Load Board
             </a>
-            <a href="/motive" className="flex items-center gap-1.5 text-xs text-[#666] hover:text-[#aaa] transition-colors">
-              <ExternalLink className="h-3 w-3" />
+            <a
+              href="/motive"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition-colors"
+            >
+              <Truck className="h-3.5 w-3.5" />
               Motive
             </a>
+            <div className="w-px h-6 bg-[#e5e7eb] mx-1" />
             <button
               onClick={() => fetchData()}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1a1a1a] text-xs text-[#aaa] hover:text-white hover:bg-[#222] transition-colors border border-[#2a2a2a]"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition-colors border border-[#e5e7eb]"
             >
-              <RefreshCw className="h-3 w-3" />
+              <RefreshCw className="h-3.5 w-3.5" />
               Refresh
             </button>
           </div>
         </div>
 
-        {/* ═══ TABS ═══ */}
+        {/* ── TABS ── */}
         <div className="px-6 flex items-center gap-0">
           {([
-            { id: 'listings' as Tab, label: 'All Listings', icon: Zap },
-            { id: 'negotiating' as Tab, label: 'Negotiating', icon: PhoneCall },
-            { id: 'confirmed' as Tab, label: 'Confirmed', icon: CheckCircle },
+            { id: 'listings' as Tab, label: 'All Listings', icon: BarChart3 },
+            {
+              id: 'negotiating' as Tab,
+              label: `Negotiating${pendingReviewCalls.length > 0 ? ` (${pendingReviewCalls.length} review)` : ''}`,
+              icon: PhoneCall,
+            },
+            { id: 'confirmed' as Tab, label: 'Confirmed', icon: CheckCircle2 },
           ]).map((tab) => (
             <button
               key={tab.id}
@@ -198,17 +243,22 @@ export default function HuckPage() {
               className={clsx(
                 'flex items-center gap-2 px-5 py-3 text-sm font-semibold transition-colors border-b-2 -mb-px',
                 activeTab === tab.id
-                  ? 'border-emerald-500 text-emerald-400'
-                  : 'border-transparent text-[#666] hover:text-[#aaa]'
+                  ? 'border-emerald-600 text-emerald-700'
+                  : 'border-transparent text-gray-400 hover:text-gray-600'
               )}
             >
-              <tab.icon className={clsx('h-4 w-4', activeTab === tab.id && tab.id === 'negotiating' && negotiatingCalls.length > 0 && 'animate-pulse')} />
+              <tab.icon
+                className={clsx(
+                  'h-4 w-4',
+                  activeTab === tab.id && tab.id === 'negotiating' && negotiatingCalls.length > 0 && 'animate-pulse'
+                )}
+              />
               {tab.label}
               {tabCounts[tab.id] > 0 && (
                 <span
                   className={clsx(
                     'ml-1 rounded-full px-2 py-0.5 text-[10px] font-bold',
-                    activeTab === tab.id ? 'bg-emerald-500/20 text-emerald-400' : 'bg-[#1a1a1a] text-[#666]'
+                    activeTab === tab.id ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'
                   )}
                 >
                   {tabCounts[tab.id]}
@@ -217,590 +267,790 @@ export default function HuckPage() {
             </button>
           ))}
         </div>
-      </div>
+      </header>
 
-      {/* ═══ ALL LISTINGS TAB ═══ */}
-      {activeTab === 'listings' && (
-        <div className="px-6 py-4">
-          {/* Stats bar */}
-          <div className="grid grid-cols-4 gap-3 mb-4">
-            {[
-              { label: 'Total Listings', value: availableLoads.length, color: 'text-white' },
-              { label: 'Below Spot', value: availableLoads.filter((l) => opportunityScore(l) > 0).length, color: 'text-emerald-400' },
-              { label: 'At Spot', value: availableLoads.filter((l) => opportunityScore(l) === 0).length, color: 'text-[#888]' },
-              { label: 'Above Spot', value: availableLoads.filter((l) => opportunityScore(l) < 0).length, color: 'text-red-400' },
-            ].map((stat) => (
-              <div key={stat.label} className="bg-[#111] rounded-xl border border-[#1a1a1a] px-4 py-3">
-                <p className="text-[10px] uppercase tracking-wider text-[#555] font-bold">{stat.label}</p>
-                <p className={clsx('text-2xl font-black mt-0.5', stat.color)}>{stat.value}</p>
+      <main className="px-6 py-5 max-w-[1440px] mx-auto">
+        {/* ── STATS BAR ── */}
+        <div className="grid grid-cols-4 gap-4 mb-5">
+          {[
+            { label: 'Total Listings', value: availableLoads.length, icon: BarChart3, color: 'text-gray-900', bg: 'bg-white' },
+            { label: 'Below Spot', value: belowSpotCount, icon: TrendingDown, color: 'text-emerald-700', bg: 'bg-emerald-50' },
+            { label: 'Pending Review', value: pendingReviewCalls.length, icon: AlertCircle, color: 'text-blue-700', bg: 'bg-blue-50' },
+            { label: 'Confirmed', value: confirmedCalls.length, icon: CheckCircle2, color: 'text-emerald-700', bg: 'bg-emerald-50' },
+          ].map((stat) => (
+            <div key={stat.label} className="bg-white rounded-lg border border-[#e5e7eb] px-5 py-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">{stat.label}</p>
+                  <p className={clsx('text-2xl font-extrabold mt-1', stat.color)}>{stat.value}</p>
+                </div>
+                <div className={clsx('h-10 w-10 rounded-lg flex items-center justify-center', stat.bg)}>
+                  <stat.icon className={clsx('h-5 w-5', stat.color)} />
+                </div>
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
+        </div>
 
-          {/* Listings */}
-          <div className="space-y-2">
+        {/* ════════════════════════════ ALL LISTINGS TAB ════════════════════════════ */}
+        {activeTab === 'listings' && (
+          <div>
             {availableLoads.length === 0 ? (
               <EmptyState
                 title="No listings collected"
-                subtitle="Go to the DAT Load Board and click Collect Listings"
-                action={{ label: 'Open DAT', href: '/loadboard' }}
+                subtitle="Go to the DAT Load Board and click Collect Listings to get started."
+                action={{ label: 'Open DAT Load Board', href: '/loadboard' }}
               />
             ) : (
-              availableLoads.map((load) => {
-                const spot = findSpot(load)
-                const opp = opportunityScore(load)
-                const posted = Number(load.posted_rate)
-                const spotAvg = spot ? Number(spot.avg_rate) : null
-                const isCalling = callingLoadId === load.id
+              <div className="space-y-3">
+                {availableLoads.map((load) => {
+                  const spot = findSpot(load)
+                  const opp = opportunityScore(load)
+                  const posted = Number(load.posted_rate)
+                  const spotAvg = spot ? Number(spot.avg_rate) : null
+                  const isCalling = callingLoadId === load.id
+                  const driver = findDriver(load.assigned_driver_id)
 
-                return (
-                  <div
-                    key={load.id}
-                    className="bg-[#111] rounded-xl border border-[#1a1a1a] hover:border-[#2a2a2a] transition-all overflow-hidden group"
-                  >
-                    <div className="px-5 py-4 flex items-center justify-between">
-                      <div className="flex items-center gap-4 flex-1">
-                        {/* Opportunity indicator */}
-                        <div className={clsx(
-                          'h-10 w-10 rounded-lg flex items-center justify-center shrink-0',
-                          opp > 0 ? 'bg-emerald-500/10' : opp < 0 ? 'bg-red-500/10' : 'bg-[#1a1a1a]'
-                        )}>
-                          {opp > 0 ? (
-                            <TrendingDown className="h-5 w-5 text-emerald-400" />
-                          ) : opp < 0 ? (
-                            <TrendingUp className="h-5 w-5 text-red-400" />
-                          ) : (
-                            <span className="text-[#555] text-xs">--</span>
-                          )}
-                        </div>
-
-                        {/* Route info */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-white">
-                              {load.origin_city}, {load.origin_state}
-                            </span>
-                            <ArrowRight className="h-3.5 w-3.5 text-[#555] shrink-0" />
-                            <span className="font-bold text-white">
-                              {load.dest_city}, {load.dest_state}
-                            </span>
-                            <span className={clsx(
-                              'inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold',
-                              load.equipment_type === 'Reefer' ? 'bg-emerald-500/10 text-emerald-400' :
-                              load.equipment_type === 'Flatbed' ? 'bg-amber-500/10 text-amber-400' :
-                              'bg-blue-500/10 text-blue-400'
-                            )}>
-                              {EQUIP_CODE[load.equipment_type] || 'V'}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-3 mt-1 text-xs text-[#666]">
-                            <span>{load.miles} mi</span>
-                            <span>&middot;</span>
-                            <span>{load.broker_name}</span>
-                            <span>&middot;</span>
-                            <span>Pickup {format(new Date(load.pickup_date), 'MMM d')}</span>
-                            {load.weight && (
-                              <>
-                                <span>&middot;</span>
-                                <span>{(load.weight / 1000).toFixed(0)}k lbs</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Rate + opportunity */}
-                      <div className="flex items-center gap-5">
-                        <div className="text-right">
-                          <p className="text-lg font-black text-white">${posted.toLocaleString()}</p>
-                          <div className="flex items-center gap-2 justify-end mt-0.5">
-                            <span className="text-[11px] text-[#555]">${Number(load.rate_per_mile).toFixed(2)}/mi</span>
-                            {spotAvg && (
-                              <>
-                                <span className="text-[#333]">&middot;</span>
-                                <span className="text-[11px] text-[#555]">Spot Rate: ${spotAvg.toLocaleString()}</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-
-                        {opp > 0 && (
-                          <div className="bg-emerald-500/10 rounded-lg px-3 py-1.5 text-center">
-                            <p className="text-emerald-400 font-black text-sm">${opp.toFixed(0)}</p>
-                            <p className="text-emerald-500/60 text-[9px] font-bold uppercase">Below Spot</p>
-                          </div>
-                        )}
-                        {opp < 0 && (
-                          <div className="bg-red-500/10 rounded-lg px-3 py-1.5 text-center">
-                            <p className="text-red-400 font-black text-sm">${Math.abs(opp).toFixed(0)}</p>
-                            <p className="text-red-500/60 text-[9px] font-bold uppercase">Above Spot</p>
-                          </div>
-                        )}
-
-                        {/* Negotiate button */}
-                        <button
-                          onClick={() => handleNegotiate(load.id)}
-                          disabled={isCalling}
-                          className={clsx(
-                            'flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all',
-                            isCalling
-                              ? 'bg-[#1a1a1a] text-[#555] cursor-wait'
-                              : 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-white hover:from-emerald-600 hover:to-emerald-700 active:scale-[0.97] shadow-lg shadow-emerald-500/20'
-                          )}
-                        >
-                          {isCalling ? (
-                            <>
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              Calling...
-                            </>
-                          ) : (
-                            <>
-                              <Bot className="h-4 w-4" />
-                              Negotiate
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ═══ NEGOTIATING TAB ═══ */}
-      {activeTab === 'negotiating' && (
-        <div className="px-6 py-4">
-          {negotiatingCalls.length === 0 && dispatchingLoads.length === 0 && pendingReviewCalls.length === 0 && recentEndedCalls.length === 0 ? (
-            <EmptyState
-              title="No active negotiations"
-              subtitle="Click Negotiate on a listing to start a call"
-            />
-          ) : (
-            <div className="space-y-3">
-              {/* Active calls */}
-              {negotiatingCalls.map((call) => {
-                const load = loads.find((l) => l.id === call.load_id)
-                const spot = load ? findSpot(load) : undefined
-                const isExpanded = expandedCallId === String(call.id)
-
-                return (
-                  <div key={call.id} className="bg-[#111] rounded-xl border border-amber-500/20 overflow-hidden">
+                  return (
                     <div
-                      className="px-5 py-4 flex items-center justify-between cursor-pointer hover:bg-[#151515] transition-colors"
-                      onClick={() => setExpandedCallId(isExpanded ? null : String(call.id))}
+                      key={load.id}
+                      className="bg-white rounded-lg border border-[#e5e7eb] hover:border-gray-300 transition-all overflow-hidden"
                     >
-                      <div className="flex items-center gap-4">
-                        <div className="h-12 w-12 rounded-xl bg-amber-500/10 flex items-center justify-center relative">
-                          <Phone className="h-5 w-5 text-amber-400" />
-                          <div className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-amber-500 animate-pulse" />
-                        </div>
-                        <div>
-                          <p className="font-bold text-white">
-                            {load ? `${load.origin_city}, ${load.origin_state}` : '...'}{' '}
-                            <ArrowRight className="h-3 w-3 inline text-[#555]" />{' '}
-                            {load ? `${load.dest_city}, ${load.dest_state}` : '...'}
-                          </p>
-                          <p className="text-xs text-[#666] mt-0.5">
-                            {load?.broker_name} &middot; Strategy:{' '}
-                            <span className={clsx('font-bold', call.strategy === 'accept' ? 'text-emerald-400' : 'text-amber-400')}>
-                              {call.strategy}
-                            </span>
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-5">
-                        <div className="text-right">
-                          <p className="text-xs text-[#555]">Offered</p>
-                          <p className="font-bold text-white">${Number(call.offered_rate).toLocaleString()}</p>
-                        </div>
-                        {call.counter_offer_rate && (
-                          <div className="text-right">
-                            <p className="text-xs text-[#555]">Counter</p>
-                            <p className="font-bold text-amber-400">${Number(call.counter_offer_rate).toLocaleString()}</p>
-                          </div>
-                        )}
-                        <div className="flex items-center gap-2">
-                          <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold bg-amber-500/10 text-amber-400">
-                            {call.outcome === 'in_progress' ? (
-                              <>
-                                <Volume2 className="h-3 w-3 animate-pulse" />
-                                On Call
-                              </>
+                      <div className="px-5 py-4 flex items-center justify-between gap-4">
+                        {/* Left: opportunity indicator + route */}
+                        <div className="flex items-center gap-4 flex-1 min-w-0">
+                          <div
+                            className={clsx(
+                              'h-10 w-10 rounded-lg flex items-center justify-center shrink-0',
+                              opp > 0 ? 'bg-emerald-50' : opp < 0 ? 'bg-red-50' : 'bg-gray-50'
+                            )}
+                          >
+                            {opp > 0 ? (
+                              <TrendingDown className="h-5 w-5 text-emerald-600" />
+                            ) : opp < 0 ? (
+                              <TrendingUp className="h-5 w-5 text-red-500" />
                             ) : (
-                              <>
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                                Initiating
-                              </>
+                              <span className="text-gray-300 text-xs font-bold">--</span>
                             )}
-                          </span>
-                          {isExpanded ? <ChevronUp className="h-4 w-4 text-[#555]" /> : <ChevronDown className="h-4 w-4 text-[#555]" />}
-                        </div>
-                      </div>
-                    </div>
-
-                    {isExpanded && (
-                      <div className="px-5 pb-4 border-t border-[#1a1a1a] pt-3">
-                        <div className="grid grid-cols-4 gap-3 text-xs">
-                          <div>
-                            <p className="text-[#555] mb-0.5">VAPI Call ID</p>
-                            <p className="text-[#888] font-mono text-[10px]">{call.vapi_call_id || '--'}</p>
-                          </div>
-                          <div>
-                            <p className="text-[#555] mb-0.5">Equipment</p>
-                            <p className="text-white">{load?.equipment_type}</p>
-                          </div>
-                          <div>
-                            <p className="text-[#555] mb-0.5">Miles</p>
-                            <p className="text-white">{load?.miles}</p>
-                          </div>
-                          <div>
-                            <p className="text-[#555] mb-0.5">Spot Rate</p>
-                            <p className="text-white">{spot ? `$${Number(spot.avg_rate).toLocaleString()}` : '--'}</p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-
-              {/* Dispatching loads (queued) */}
-              {dispatchingLoads
-                .filter((l) => !negotiatingCalls.find((c) => c.load_id === l.id))
-                .map((load) => (
-                  <div key={load.id} className="bg-[#111] rounded-xl border border-[#1a1a1a] px-5 py-4 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="h-12 w-12 rounded-xl bg-[#1a1a1a] flex items-center justify-center">
-                        <Clock className="h-5 w-5 text-[#555]" />
-                      </div>
-                      <div>
-                        <p className="font-bold text-white">
-                          {load.origin_city}, {load.origin_state}{' '}
-                          <ArrowRight className="h-3 w-3 inline text-[#555]" />{' '}
-                          {load.dest_city}, {load.dest_state}
-                        </p>
-                        <p className="text-xs text-[#555] mt-0.5">{load.broker_name} &middot; Queued</p>
-                      </div>
-                    </div>
-                    <span className="text-xs text-[#555] font-medium">Waiting...</span>
-                  </div>
-                ))}
-
-              {/* ═══ PENDING REVIEW SECTION ═══ */}
-              {pendingReviewCalls.length > 0 && (
-                <div className="mt-4">
-                  <p className="text-xs text-blue-400 font-bold uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <AlertCircle className="h-3.5 w-3.5" />
-                    Pending Review — Broker Offers
-                  </p>
-                  {pendingReviewCalls.map((call) => {
-                    const load = loads.find((l) => l.id === call.load_id)
-                    const spot = load ? findSpot(load) : undefined
-                    const isExpanded = expandedCallId === String(call.id)
-
-                    return (
-                      <div key={call.id} className="bg-[#111] rounded-xl border border-blue-500/20 overflow-hidden mb-2">
-                        <div
-                          className="px-5 py-4 flex items-center justify-between cursor-pointer hover:bg-[#151515] transition-colors"
-                          onClick={() => setExpandedCallId(isExpanded ? null : String(call.id))}
-                        >
-                          <div className="flex items-center gap-4">
-                            <div className="h-12 w-12 rounded-xl bg-blue-500/10 flex items-center justify-center">
-                              <MessageSquare className="h-5 w-5 text-blue-400" />
-                            </div>
-                            <div>
-                              <p className="font-bold text-white">
-                                {load ? `${load.origin_city}, ${load.origin_state}` : '...'}{' '}
-                                <ArrowRight className="h-3 w-3 inline text-[#555]" />{' '}
-                                {load ? `${load.dest_city}, ${load.dest_state}` : '...'}
-                              </p>
-                              <p className="text-xs text-[#666] mt-0.5">
-                                {load?.broker_name} &middot; Deferred to team for review
-                              </p>
-                            </div>
                           </div>
 
-                          <div className="flex items-center gap-5">
-                            <div className="text-right">
-                              <p className="text-xs text-[#555]">Posted</p>
-                              <p className="font-bold text-white">${load ? Number(load.posted_rate).toLocaleString() : '--'}</p>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-xs text-[#555]">Broker Offer</p>
-                              <p className="font-bold text-blue-400">${call.counter_offer_rate ? Number(call.counter_offer_rate).toLocaleString() : '--'}</p>
-                            </div>
-                            {spot && (
-                              <div className="text-right">
-                                <p className="text-xs text-[#555]">Spot Rate</p>
-                                <p className="font-bold text-[#888]">${Number(spot.avg_rate).toLocaleString()}</p>
-                              </div>
-                            )}
-                            <div className="flex items-center gap-2">
-                              <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold bg-blue-500/10 text-blue-400">
-                                <Clock className="h-3 w-3" />
-                                Review
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-semibold text-gray-900">
+                                {load.origin_city}, {load.origin_state}
                               </span>
-                              {isExpanded ? <ChevronUp className="h-4 w-4 text-[#555]" /> : <ChevronDown className="h-4 w-4 text-[#555]" />}
+                              <ArrowRight className="h-3.5 w-3.5 text-gray-300 shrink-0" />
+                              <span className="font-semibold text-gray-900">
+                                {load.dest_city}, {load.dest_state}
+                              </span>
+                              <span
+                                className={clsx(
+                                  'inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold',
+                                  load.equipment_type === 'Reefer'
+                                    ? 'bg-emerald-50 text-emerald-700'
+                                    : load.equipment_type === 'Flatbed'
+                                      ? 'bg-amber-50 text-amber-700'
+                                      : 'bg-blue-50 text-blue-700'
+                                )}
+                              >
+                                {EQUIP_CODE[load.equipment_type] || 'V'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1.5 text-xs text-gray-400 flex-wrap">
+                              <span className="text-gray-500">{load.miles} mi</span>
+                              <span className="text-gray-300">/</span>
+                              <span>{load.broker_name}</span>
+                              <span className="text-gray-300">/</span>
+                              <span>Pickup {format(new Date(load.pickup_date), 'MMM d')}</span>
+                              {load.weight && (
+                                <>
+                                  <span className="text-gray-300">/</span>
+                                  <span>{(load.weight / 1000).toFixed(0)}k lbs</span>
+                                </>
+                              )}
                             </div>
                           </div>
                         </div>
 
-                        {isExpanded && (
-                          <div className="px-5 pb-4 border-t border-[#1a1a1a] pt-3 space-y-3">
-                            <div className="grid grid-cols-4 gap-3 text-xs">
-                              <div>
-                                <p className="text-[#555] mb-0.5">Equipment</p>
-                                <p className="text-white">{load?.equipment_type}</p>
-                              </div>
-                              <div>
-                                <p className="text-[#555] mb-0.5">Miles</p>
-                                <p className="text-white">{load?.miles}</p>
-                              </div>
-                              <div>
-                                <p className="text-[#555] mb-0.5">Duration</p>
-                                <p className="text-white">{call.duration_seconds ? `${call.duration_seconds}s` : '--'}</p>
-                              </div>
-                              <div>
-                                <p className="text-[#555] mb-0.5">Rate Gap</p>
-                                <p className="text-amber-400">
-                                  {spot && call.counter_offer_rate
-                                    ? `$${(Number(spot.avg_rate) - Number(call.counter_offer_rate)).toFixed(0)} below spot`
-                                    : '--'}
+                        {/* Center: driver assignment */}
+                        <div className="shrink-0 min-w-[160px]">
+                          {driver ? (
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-50 border border-[#e5e7eb]">
+                              <User className="h-4 w-4 text-gray-400 shrink-0" />
+                              <div className="min-w-0">
+                                <p className="text-xs font-semibold text-gray-800 truncate">{driver.name}</p>
+                                <p className="text-[10px] text-gray-400 truncate">
+                                  {driver.current_city}, {driver.current_state}
                                 </p>
                               </div>
                             </div>
-                            {call.summary && (
-                              <div className="bg-[#0a0a0a] rounded-lg px-4 py-3 border border-[#1a1a1a]">
-                                <p className="text-[10px] uppercase tracking-wider text-[#555] font-bold mb-1">Call Summary</p>
-                                <p className="text-xs text-[#aaa] italic">&quot;{call.summary}&quot;</p>
-                              </div>
-                            )}
-                            {call.transcript && (
-                              <div className="bg-[#0a0a0a] rounded-lg px-4 py-3 border border-[#1a1a1a] max-h-40 overflow-y-auto">
-                                <p className="text-[10px] uppercase tracking-wider text-[#555] font-bold mb-1">Transcript</p>
-                                <p className="text-xs text-[#888] whitespace-pre-wrap">{call.transcript}</p>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-
-              {/* Recent ended calls from this session */}
-              {recentEndedCalls.length > 0 && (
-                <div className="mt-4">
-                  <p className="text-xs text-[#555] font-bold uppercase tracking-wider mb-2">Ended</p>
-                  {recentEndedCalls.map((call) => {
-                    const load = loads.find((l) => l.id === call.load_id)
-                    const isExpanded = expandedCallId === String(call.id)
-                    const outcomeLabel = call.outcome === 'rejected' ? 'Rejected' : call.outcome === 'voicemail' ? 'Voicemail' : call.outcome === 'no_answer' ? 'No Answer' : 'Error'
-                    const outcomeColor = call.outcome === 'rejected' ? 'text-red-400' : 'text-[#888]'
-
-                    return (
-                      <div key={call.id} className="bg-[#111] rounded-xl border border-[#1a1a1a] overflow-hidden mb-2">
-                        <div
-                          className="px-5 py-3 flex items-center justify-between cursor-pointer hover:bg-[#151515] transition-colors"
-                          onClick={() => setExpandedCallId(isExpanded ? null : String(call.id))}
-                        >
-                          <div className="flex items-center gap-3">
-                            <X className="h-4 w-4 text-red-400/60" />
-                            <p className="text-sm text-[#888]">
-                              {load ? `${load.origin_city}, ${load.origin_state} → ${load.dest_city}, ${load.dest_state}` : '...'}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className={clsx('text-xs font-bold', outcomeColor)}>{outcomeLabel}</span>
-                            {call.duration_seconds && <span className="text-xs text-[#555]">{call.duration_seconds}s</span>}
-                            {isExpanded ? <ChevronUp className="h-4 w-4 text-[#555]" /> : <ChevronDown className="h-4 w-4 text-[#555]" />}
-                          </div>
+                          ) : (
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-50 border border-dashed border-gray-200">
+                              <User className="h-4 w-4 text-gray-300 shrink-0" />
+                              <p className="text-xs text-gray-300">Unassigned</p>
+                            </div>
+                          )}
                         </div>
-                        {isExpanded && (
-                          <div className="px-5 pb-3 border-t border-[#1a1a1a] pt-3 space-y-2">
-                            {call.summary && (
-                              <div className="bg-[#0a0a0a] rounded-lg px-4 py-3 border border-[#1a1a1a]">
-                                <p className="text-[10px] uppercase tracking-wider text-[#555] font-bold mb-1">Summary</p>
-                                <p className="text-xs text-[#aaa] italic">&quot;{call.summary}&quot;</p>
-                              </div>
-                            )}
-                            {call.transcript && (
-                              <div className="bg-[#0a0a0a] rounded-lg px-4 py-3 border border-[#1a1a1a] max-h-40 overflow-y-auto">
-                                <p className="text-[10px] uppercase tracking-wider text-[#555] font-bold mb-1">Transcript</p>
-                                <p className="text-xs text-[#888] whitespace-pre-wrap">{call.transcript}</p>
-                              </div>
-                            )}
-                            <div className="grid grid-cols-3 gap-3 text-xs">
-                              <div>
-                                <p className="text-[#555] mb-0.5">Offered</p>
-                                <p className="text-white">${Number(call.offered_rate).toLocaleString()}</p>
-                              </div>
-                              {call.counter_offer_rate && (
-                                <div>
-                                  <p className="text-[#555] mb-0.5">Broker Counter</p>
-                                  <p className="text-amber-400">${Number(call.counter_offer_rate).toLocaleString()}</p>
-                                </div>
-                              )}
-                              {call.final_rate && (
-                                <div>
-                                  <p className="text-[#555] mb-0.5">Final</p>
-                                  <p className="text-white">${Number(call.final_rate).toLocaleString()}</p>
-                                </div>
+
+                        {/* Right: rate, opportunity, negotiate button */}
+                        <div className="flex items-center gap-4 shrink-0">
+                          <div className="text-right">
+                            <p className="text-lg font-extrabold text-gray-900">${posted.toLocaleString()}</p>
+                            <div className="flex items-center gap-1.5 justify-end mt-0.5">
+                              <span className="text-[11px] text-gray-400">${Number(load.rate_per_mile).toFixed(2)}/mi</span>
+                              {spotAvg && (
+                                <>
+                                  <span className="text-gray-200">|</span>
+                                  <span className="text-[11px] text-gray-400">Spot ${spotAvg.toLocaleString()}</span>
+                                </>
                               )}
                             </div>
                           </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
-      {/* ═══ CONFIRMED TAB ═══ */}
-      {activeTab === 'confirmed' && (
-        <div className="px-6 py-4">
-          {confirmedCalls.length === 0 ? (
-            <EmptyState
-              title="No confirmed deals yet"
-              subtitle="Deals confirmed by brokers will appear here"
-            />
-          ) : (
-            <div className="space-y-3">
-              {confirmedCalls.map((call) => {
-                const load = loads.find((l) => l.id === call.load_id)
-                const spot = load ? findSpot(load) : undefined
-                const savings = spot && call.final_rate ? Number(spot.avg_rate) - Number(call.final_rate) : null
-                const isExpanded = expandedCallId === String(call.id)
+                          {opp > 0 && (
+                            <div className="bg-emerald-50 rounded-lg px-3 py-1.5 text-center border border-emerald-100">
+                              <p className="text-emerald-700 font-extrabold text-sm">${opp.toFixed(0)}</p>
+                              <p className="text-emerald-500 text-[9px] font-bold uppercase">Below Spot</p>
+                            </div>
+                          )}
+                          {opp < 0 && (
+                            <div className="bg-red-50 rounded-lg px-3 py-1.5 text-center border border-red-100">
+                              <p className="text-red-600 font-extrabold text-sm">${Math.abs(opp).toFixed(0)}</p>
+                              <p className="text-red-400 text-[9px] font-bold uppercase">Above Spot</p>
+                            </div>
+                          )}
 
-                return (
-                  <div key={call.id} className="bg-[#111] rounded-xl border border-emerald-500/20 overflow-hidden">
-                    <div
-                      className="px-5 py-4 flex items-center justify-between cursor-pointer hover:bg-[#151515] transition-colors"
-                      onClick={() => setExpandedCallId(isExpanded ? null : String(call.id))}
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="h-12 w-12 rounded-xl bg-emerald-500/10 flex items-center justify-center">
-                          <CheckCircle className="h-6 w-6 text-emerald-400" />
-                        </div>
-                        <div>
-                          <p className="font-bold text-white">
-                            {load ? `${load.origin_city}, ${load.origin_state}` : '...'}{' '}
-                            <ArrowRight className="h-3 w-3 inline text-[#555]" />{' '}
-                            {load ? `${load.dest_city}, ${load.dest_state}` : '...'}
-                          </p>
-                          <p className="text-xs text-[#666] mt-0.5">
-                            {load?.broker_name} &middot; {load?.equipment_type} &middot; {load?.miles} mi
-                          </p>
+                          <button
+                            onClick={() => handleNegotiate(load.id)}
+                            disabled={isCalling}
+                            className={clsx(
+                              'flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all',
+                              isCalling
+                                ? 'bg-gray-100 text-gray-400 cursor-wait'
+                                : 'bg-emerald-600 text-white hover:bg-emerald-700 active:scale-[0.97]'
+                            )}
+                          >
+                            {isCalling ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Calling...
+                              </>
+                            ) : (
+                              <>
+                                <Bot className="h-4 w-4" />
+                                Negotiate
+                              </>
+                            )}
+                          </button>
                         </div>
                       </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
-                      <div className="flex items-center gap-5">
-                        <div className="text-right">
-                          <p className="text-xs text-[#555]">Final Rate</p>
-                          <p className="font-black text-emerald-400 text-xl">
-                            ${call.final_rate ? Number(call.final_rate).toLocaleString() : Number(call.offered_rate).toLocaleString()}
-                          </p>
-                        </div>
-                        {savings !== null && savings > 0 && (
-                          <div className="bg-emerald-500/10 rounded-lg px-3 py-1.5 text-center">
-                            <p className="text-emerald-400 font-black">${savings.toFixed(0)}</p>
-                            <p className="text-emerald-500/60 text-[9px] font-bold uppercase">Saved</p>
+        {/* ════════════════════════════ NEGOTIATING TAB ════════════════════════════ */}
+        {activeTab === 'negotiating' && (
+          <div>
+            {negotiatingCalls.length === 0 &&
+            dispatchingLoads.length === 0 &&
+            pendingReviewCalls.length === 0 &&
+            recentEndedCalls.length === 0 ? (
+              <EmptyState
+                title="No active negotiations"
+                subtitle="Click Negotiate on a listing to start an AI-powered call."
+              />
+            ) : (
+              <div className="space-y-4">
+                {/* ── Active Calls ── */}
+                {(negotiatingCalls.length > 0 || dispatchingLoads.filter((l) => !negotiatingCalls.find((c) => c.load_id === l.id)).length > 0) && (
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-amber-600 mb-2 flex items-center gap-1.5">
+                      <Phone className="h-3.5 w-3.5" />
+                      Active Calls
+                    </p>
+                    <div className="space-y-2">
+                      {negotiatingCalls.map((call) => {
+                        const load = loads.find((l) => l.id === call.load_id)
+                        const spot = load ? findSpot(load) : undefined
+                        const driver = findDriver(call.driver_id)
+                        const isExpanded = expandedCallId === String(call.id)
+
+                        return (
+                          <div key={call.id} className="bg-white rounded-lg border border-amber-200 overflow-hidden">
+                            <div
+                              className="px-5 py-4 flex items-center justify-between cursor-pointer hover:bg-amber-50/30 transition-colors"
+                              onClick={() => setExpandedCallId(isExpanded ? null : String(call.id))}
+                            >
+                              <div className="flex items-center gap-4">
+                                <div className="h-11 w-11 rounded-lg bg-amber-50 flex items-center justify-center relative">
+                                  <Phone className="h-5 w-5 text-amber-600" />
+                                  <div className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-amber-500 animate-pulse border-2 border-white" />
+                                </div>
+                                <div>
+                                  <p className="font-semibold text-gray-900">
+                                    {load ? `${load.origin_city}, ${load.origin_state}` : '...'}{' '}
+                                    <ArrowRight className="h-3 w-3 inline text-gray-300" />{' '}
+                                    {load ? `${load.dest_city}, ${load.dest_state}` : '...'}
+                                  </p>
+                                  <p className="text-xs text-gray-400 mt-0.5">
+                                    {load?.broker_name}
+                                    {driver && <> &middot; Driver: <span className="text-gray-600 font-medium">{driver.name}</span></>}
+                                    {' '}&middot; Strategy:{' '}
+                                    <span className={clsx('font-semibold', call.strategy === 'accept' ? 'text-emerald-600' : 'text-amber-600')}>
+                                      {call.strategy}
+                                    </span>
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-4">
+                                <div className="text-right">
+                                  <p className="text-[10px] uppercase text-gray-400 font-semibold">Offered</p>
+                                  <p className="font-bold text-gray-900">${Number(call.offered_rate).toLocaleString()}</p>
+                                </div>
+                                {call.counter_offer_rate && (
+                                  <div className="text-right">
+                                    <p className="text-[10px] uppercase text-gray-400 font-semibold">Counter</p>
+                                    <p className="font-bold text-amber-600">${Number(call.counter_offer_rate).toLocaleString()}</p>
+                                  </div>
+                                )}
+                                <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                                  {call.outcome === 'in_progress' ? (
+                                    <>
+                                      <Volume2 className="h-3 w-3 animate-pulse" />
+                                      On Call
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                      Initiating
+                                    </>
+                                  )}
+                                </span>
+                                {isExpanded ? (
+                                  <ChevronUp className="h-4 w-4 text-gray-400" />
+                                ) : (
+                                  <ChevronDown className="h-4 w-4 text-gray-400" />
+                                )}
+                              </div>
+                            </div>
+
+                            {isExpanded && (
+                              <div className="px-5 pb-4 border-t border-gray-100 pt-3">
+                                <div className="grid grid-cols-4 gap-4 text-xs">
+                                  <div>
+                                    <p className="text-gray-400 mb-0.5 font-medium">VAPI Call ID</p>
+                                    <p className="text-gray-600 font-mono text-[10px]">{call.vapi_call_id || '--'}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-gray-400 mb-0.5 font-medium">Equipment</p>
+                                    <p className="text-gray-800">{load?.equipment_type}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-gray-400 mb-0.5 font-medium">Miles</p>
+                                    <p className="text-gray-800">{load?.miles}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-gray-400 mb-0.5 font-medium">Spot Rate</p>
+                                    <p className="text-gray-800">{spot ? `$${Number(spot.avg_rate).toLocaleString()}` : '--'}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
-                        )}
-                        <div className="flex items-center gap-2">
-                          <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold bg-emerald-500/10 text-emerald-400">
-                            <CheckCircle className="h-3 w-3" />
+                        )
+                      })}
+
+                      {/* Dispatching loads (queued) */}
+                      {dispatchingLoads
+                        .filter((l) => !negotiatingCalls.find((c) => c.load_id === l.id))
+                        .map((load) => (
+                          <div
+                            key={load.id}
+                            className="bg-white rounded-lg border border-[#e5e7eb] px-5 py-4 flex items-center justify-between"
+                          >
+                            <div className="flex items-center gap-4">
+                              <div className="h-11 w-11 rounded-lg bg-gray-50 flex items-center justify-center">
+                                <Clock className="h-5 w-5 text-gray-400" />
+                              </div>
+                              <div>
+                                <p className="font-semibold text-gray-900">
+                                  {load.origin_city}, {load.origin_state}{' '}
+                                  <ArrowRight className="h-3 w-3 inline text-gray-300" />{' '}
+                                  {load.dest_city}, {load.dest_state}
+                                </p>
+                                <p className="text-xs text-gray-400 mt-0.5">{load.broker_name} &middot; Queued for dispatch</p>
+                              </div>
+                            </div>
+                            <span className="text-xs text-gray-400 font-medium flex items-center gap-1.5">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              Waiting...
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Pending Review ── */}
+                {pendingReviewCalls.length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-blue-600 mb-2 flex items-center gap-1.5">
+                      <AlertCircle className="h-3.5 w-3.5" />
+                      Pending Review -- Broker Offers ({pendingReviewCalls.length})
+                    </p>
+                    <div className="space-y-2">
+                      {pendingReviewCalls.map((call) => {
+                        const load = loads.find((l) => l.id === call.load_id)
+                        const spot = load ? findSpot(load) : undefined
+                        const driver = findDriver(call.driver_id)
+                        const isExpanded = expandedCallId === String(call.id)
+                        const isCallCompleted = call.outcome !== 'in_progress' && call.outcome !== 'pending'
+
+                        return (
+                          <div key={call.id} className="bg-white rounded-lg border border-blue-200 overflow-hidden">
+                            <div
+                              className="px-5 py-4 flex items-center justify-between cursor-pointer hover:bg-blue-50/30 transition-colors"
+                              onClick={() => setExpandedCallId(isExpanded ? null : String(call.id))}
+                            >
+                              <div className="flex items-center gap-4">
+                                <div className="h-11 w-11 rounded-lg bg-blue-50 flex items-center justify-center">
+                                  <MessageSquare className="h-5 w-5 text-blue-600" />
+                                </div>
+                                <div>
+                                  <p className="font-semibold text-gray-900">
+                                    {load ? `${load.origin_city}, ${load.origin_state}` : '...'}{' '}
+                                    <ArrowRight className="h-3 w-3 inline text-gray-300" />{' '}
+                                    {load ? `${load.dest_city}, ${load.dest_state}` : '...'}
+                                  </p>
+                                  <p className="text-xs text-gray-400 mt-0.5">
+                                    {load?.broker_name}
+                                    {driver && <> &middot; Driver: <span className="text-gray-600 font-medium">{driver.name}</span></>}
+                                    {' '}&middot; Deferred to team for review
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-4">
+                                <div className="text-right">
+                                  <p className="text-[10px] uppercase text-gray-400 font-semibold">Posted</p>
+                                  <p className="font-bold text-gray-900">${load ? Number(load.posted_rate).toLocaleString() : '--'}</p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-[10px] uppercase text-gray-400 font-semibold">Broker Offer</p>
+                                  <p className="font-bold text-blue-600">
+                                    ${call.counter_offer_rate ? Number(call.counter_offer_rate).toLocaleString() : '--'}
+                                  </p>
+                                </div>
+                                {spot && (
+                                  <div className="text-right">
+                                    <p className="text-[10px] uppercase text-gray-400 font-semibold">Spot</p>
+                                    <p className="font-bold text-gray-500">${Number(spot.avg_rate).toLocaleString()}</p>
+                                  </div>
+                                )}
+                                <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                                  <Clock className="h-3 w-3" />
+                                  Review
+                                </span>
+                                {isExpanded ? (
+                                  <ChevronUp className="h-4 w-4 text-gray-400" />
+                                ) : (
+                                  <ChevronDown className="h-4 w-4 text-gray-400" />
+                                )}
+                              </div>
+                            </div>
+
+                            {isExpanded && (
+                              <div className="px-5 pb-4 border-t border-gray-100 pt-3 space-y-3">
+                                <div className="grid grid-cols-4 gap-4 text-xs">
+                                  <div>
+                                    <p className="text-gray-400 mb-0.5 font-medium">Equipment</p>
+                                    <p className="text-gray-800">{load?.equipment_type}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-gray-400 mb-0.5 font-medium">Miles</p>
+                                    <p className="text-gray-800">{load?.miles}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-gray-400 mb-0.5 font-medium">Duration</p>
+                                    <p className="text-gray-800">{call.duration_seconds ? `${call.duration_seconds}s` : '--'}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-gray-400 mb-0.5 font-medium">Rate Gap</p>
+                                    <p className="text-amber-600">
+                                      {spot && call.counter_offer_rate
+                                        ? `$${(Number(spot.avg_rate) - Number(call.counter_offer_rate)).toFixed(0)} below spot`
+                                        : '--'}
+                                    </p>
+                                  </div>
+                                </div>
+                                {call.summary && (
+                                  <div className="bg-[#f8f9fa] rounded-lg px-4 py-3 border border-[#e5e7eb]">
+                                    <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-1">Call Summary</p>
+                                    <p className="text-xs text-gray-600 italic">&quot;{call.summary}&quot;</p>
+                                  </div>
+                                )}
+                                {call.transcript && (
+                                  <div className="bg-[#f8f9fa] rounded-lg px-4 py-3 border border-[#e5e7eb] max-h-40 overflow-y-auto">
+                                    <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-1">Transcript</p>
+                                    <p className="text-xs text-gray-500 whitespace-pre-wrap">{call.transcript}</p>
+                                  </div>
+                                )}
+                                {isCallCompleted && call.transcript && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleSummarize(String(call.id))
+                                    }}
+                                    disabled={summarizingCallId === String(call.id)}
+                                    className={clsx(
+                                      'flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all',
+                                      summarizingCallId === String(call.id)
+                                        ? 'bg-gray-100 text-gray-400 cursor-wait'
+                                        : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
+                                    )}
+                                  >
+                                    {summarizingCallId === String(call.id) ? (
+                                      <>
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        Summarizing...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Sparkles className="h-3.5 w-3.5" />
+                                        Summarize with AI
+                                      </>
+                                    )}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Ended Calls ── */}
+                {recentEndedCalls.length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2 flex items-center gap-1.5">
+                      <X className="h-3.5 w-3.5" />
+                      Ended
+                    </p>
+                    <div className="space-y-2">
+                      {recentEndedCalls.map((call) => {
+                        const load = loads.find((l) => l.id === call.load_id)
+                        const driver = findDriver(call.driver_id)
+                        const isExpanded = expandedCallId === String(call.id)
+                        const outcomeLabel =
+                          call.outcome === 'rejected'
+                            ? 'Rejected'
+                            : call.outcome === 'voicemail'
+                              ? 'Voicemail'
+                              : call.outcome === 'no_answer'
+                                ? 'No Answer'
+                                : 'Error'
+                        const isRejected = call.outcome === 'rejected'
+
+                        return (
+                          <div key={call.id} className="bg-white rounded-lg border border-[#e5e7eb] overflow-hidden">
+                            <div
+                              className="px-5 py-3 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors"
+                              onClick={() => setExpandedCallId(isExpanded ? null : String(call.id))}
+                            >
+                              <div className="flex items-center gap-3">
+                                <X className={clsx('h-4 w-4', isRejected ? 'text-red-400' : 'text-gray-300')} />
+                                <p className="text-sm text-gray-500">
+                                  {load ? `${load.origin_city}, ${load.origin_state} \u2192 ${load.dest_city}, ${load.dest_state}` : '...'}
+                                </p>
+                                {driver && (
+                                  <span className="text-xs text-gray-400">
+                                    &middot; {driver.name}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span
+                                  className={clsx(
+                                    'inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold',
+                                    isRejected
+                                      ? 'bg-red-50 text-red-600 border border-red-100'
+                                      : 'bg-gray-50 text-gray-500 border border-gray-200'
+                                  )}
+                                >
+                                  {outcomeLabel}
+                                </span>
+                                {call.duration_seconds && <span className="text-xs text-gray-400">{call.duration_seconds}s</span>}
+                                {isExpanded ? (
+                                  <ChevronUp className="h-4 w-4 text-gray-400" />
+                                ) : (
+                                  <ChevronDown className="h-4 w-4 text-gray-400" />
+                                )}
+                              </div>
+                            </div>
+                            {isExpanded && (
+                              <div className="px-5 pb-4 border-t border-gray-100 pt-3 space-y-3">
+                                {call.summary && (
+                                  <div className="bg-[#f8f9fa] rounded-lg px-4 py-3 border border-[#e5e7eb]">
+                                    <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-1">Summary</p>
+                                    <p className="text-xs text-gray-600 italic">&quot;{call.summary}&quot;</p>
+                                  </div>
+                                )}
+                                {call.transcript && (
+                                  <div className="bg-[#f8f9fa] rounded-lg px-4 py-3 border border-[#e5e7eb] max-h-40 overflow-y-auto">
+                                    <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-1">Transcript</p>
+                                    <p className="text-xs text-gray-500 whitespace-pre-wrap">{call.transcript}</p>
+                                  </div>
+                                )}
+                                <div className="grid grid-cols-3 gap-4 text-xs">
+                                  <div>
+                                    <p className="text-gray-400 mb-0.5 font-medium">Offered</p>
+                                    <p className="text-gray-800">${Number(call.offered_rate).toLocaleString()}</p>
+                                  </div>
+                                  {call.counter_offer_rate && (
+                                    <div>
+                                      <p className="text-gray-400 mb-0.5 font-medium">Broker Counter</p>
+                                      <p className="text-amber-600">${Number(call.counter_offer_rate).toLocaleString()}</p>
+                                    </div>
+                                  )}
+                                  {call.final_rate && (
+                                    <div>
+                                      <p className="text-gray-400 mb-0.5 font-medium">Final</p>
+                                      <p className="text-gray-800">${Number(call.final_rate).toLocaleString()}</p>
+                                    </div>
+                                  )}
+                                </div>
+                                {call.transcript && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleSummarize(String(call.id))
+                                    }}
+                                    disabled={summarizingCallId === String(call.id)}
+                                    className={clsx(
+                                      'flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all',
+                                      summarizingCallId === String(call.id)
+                                        ? 'bg-gray-100 text-gray-400 cursor-wait'
+                                        : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-[#e5e7eb]'
+                                    )}
+                                  >
+                                    {summarizingCallId === String(call.id) ? (
+                                      <>
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        Summarizing...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Sparkles className="h-3.5 w-3.5" />
+                                        Summarize with AI
+                                      </>
+                                    )}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ════════════════════════════ CONFIRMED TAB ════════════════════════════ */}
+        {activeTab === 'confirmed' && (
+          <div>
+            {confirmedCalls.length === 0 ? (
+              <EmptyState
+                title="No confirmed deals yet"
+                subtitle="Deals confirmed by brokers will appear here automatically."
+              />
+            ) : (
+              <div className="space-y-3">
+                {confirmedCalls.map((call) => {
+                  const load = loads.find((l) => l.id === call.load_id)
+                  const spot = load ? findSpot(load) : undefined
+                  const driver = findDriver(call.driver_id)
+                  const savings = spot && call.final_rate ? Number(spot.avg_rate) - Number(call.final_rate) : null
+                  const isExpanded = expandedCallId === String(call.id)
+
+                  return (
+                    <div key={call.id} className="bg-white rounded-lg border border-emerald-200 overflow-hidden">
+                      <div
+                        className="px-5 py-4 flex items-center justify-between cursor-pointer hover:bg-emerald-50/30 transition-colors"
+                        onClick={() => setExpandedCallId(isExpanded ? null : String(call.id))}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="h-11 w-11 rounded-lg bg-emerald-50 flex items-center justify-center">
+                            <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+                          </div>
+                          <div>
+                            <p className="font-semibold text-gray-900">
+                              {load ? `${load.origin_city}, ${load.origin_state}` : '...'}{' '}
+                              <ArrowRight className="h-3 w-3 inline text-gray-300" />{' '}
+                              {load ? `${load.dest_city}, ${load.dest_state}` : '...'}
+                            </p>
+                            <p className="text-xs text-gray-400 mt-0.5">
+                              {load?.broker_name} &middot; {load?.equipment_type} &middot; {load?.miles} mi
+                              {driver && <> &middot; Driver: <span className="text-gray-600 font-medium">{driver.name}</span></>}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <p className="text-[10px] uppercase text-gray-400 font-semibold">Final Rate</p>
+                            <p className="font-extrabold text-emerald-700 text-xl">
+                              ${call.final_rate ? Number(call.final_rate).toLocaleString() : Number(call.offered_rate).toLocaleString()}
+                            </p>
+                          </div>
+                          {savings !== null && savings > 0 && (
+                            <div className="bg-emerald-50 rounded-lg px-3 py-1.5 text-center border border-emerald-100">
+                              <p className="text-emerald-700 font-extrabold">${savings.toFixed(0)}</p>
+                              <p className="text-emerald-500 text-[9px] font-bold uppercase">Saved</p>
+                            </div>
+                          )}
+                          <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <CheckCircle2 className="h-3 w-3" />
                             Confirmed
                           </span>
-                          {isExpanded ? <ChevronUp className="h-4 w-4 text-[#555]" /> : <ChevronDown className="h-4 w-4 text-[#555]" />}
+                          {isExpanded ? (
+                            <ChevronUp className="h-4 w-4 text-gray-400" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4 text-gray-400" />
+                          )}
                         </div>
                       </div>
-                    </div>
 
-                    {isExpanded && (
-                      <div className="px-5 pb-4 border-t border-[#1a1a1a] pt-3 space-y-3">
-                        <div className="grid grid-cols-4 gap-3 text-xs">
-                          <div>
-                            <p className="text-[#555] mb-0.5">Posted Rate</p>
-                            <p className="text-white">${load ? Number(load.posted_rate).toLocaleString() : '--'}</p>
+                      {isExpanded && (
+                        <div className="px-5 pb-4 border-t border-gray-100 pt-3 space-y-3">
+                          <div className="grid grid-cols-4 gap-4 text-xs">
+                            <div>
+                              <p className="text-gray-400 mb-0.5 font-medium">Posted Rate</p>
+                              <p className="text-gray-800">${load ? Number(load.posted_rate).toLocaleString() : '--'}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-400 mb-0.5 font-medium">Spot Rate</p>
+                              <p className="text-gray-800">{spot ? `$${Number(spot.avg_rate).toLocaleString()}` : '--'}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-400 mb-0.5 font-medium">Duration</p>
+                              <p className="text-gray-800">{call.duration_seconds ? `${call.duration_seconds}s` : '--'}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-400 mb-0.5 font-medium">Strategy</p>
+                              <p
+                                className={clsx(
+                                  'font-semibold',
+                                  call.strategy === 'accept' ? 'text-emerald-600' : 'text-amber-600'
+                                )}
+                              >
+                                {call.strategy}
+                              </p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-[#555] mb-0.5">Spot Rate</p>
-                            <p className="text-white">{spot ? `$${Number(spot.avg_rate).toLocaleString()}` : '--'}</p>
-                          </div>
-                          <div>
-                            <p className="text-[#555] mb-0.5">Duration</p>
-                            <p className="text-white">{call.duration_seconds ? `${call.duration_seconds}s` : '--'}</p>
-                          </div>
-                          <div>
-                            <p className="text-[#555] mb-0.5">Strategy</p>
-                            <p className={clsx('font-bold', call.strategy === 'accept' ? 'text-emerald-400' : 'text-amber-400')}>{call.strategy}</p>
-                          </div>
+                          {call.summary && (
+                            <div className="bg-[#f8f9fa] rounded-lg px-4 py-3 border border-[#e5e7eb]">
+                              <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-1">Call Summary</p>
+                              <p className="text-xs text-gray-600 italic">&quot;{call.summary}&quot;</p>
+                            </div>
+                          )}
+                          {call.transcript && (
+                            <div className="bg-[#f8f9fa] rounded-lg px-4 py-3 border border-[#e5e7eb] max-h-40 overflow-y-auto">
+                              <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-1">Transcript</p>
+                              <p className="text-xs text-gray-500 whitespace-pre-wrap">{call.transcript}</p>
+                            </div>
+                          )}
+                          {call.transcript && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleSummarize(String(call.id))
+                              }}
+                              disabled={summarizingCallId === String(call.id)}
+                              className={clsx(
+                                'flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all',
+                                summarizingCallId === String(call.id)
+                                  ? 'bg-gray-100 text-gray-400 cursor-wait'
+                                  : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
+                              )}
+                            >
+                              {summarizingCallId === String(call.id) ? (
+                                <>
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  Summarizing...
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles className="h-3.5 w-3.5" />
+                                  Summarize with AI
+                                </>
+                              )}
+                            </button>
+                          )}
                         </div>
-                        {call.summary && (
-                          <div className="bg-[#0a0a0a] rounded-lg px-4 py-3 border border-[#1a1a1a]">
-                            <p className="text-[10px] uppercase tracking-wider text-[#555] font-bold mb-1">Call Summary</p>
-                            <p className="text-xs text-[#aaa] italic">&quot;{call.summary}&quot;</p>
-                          </div>
-                        )}
-                        {call.transcript && (
-                          <div className="bg-[#0a0a0a] rounded-lg px-4 py-3 border border-[#1a1a1a] max-h-40 overflow-y-auto">
-                            <p className="text-[10px] uppercase tracking-wider text-[#555] font-bold mb-1">Transcript</p>
-                            <p className="text-xs text-[#888] whitespace-pre-wrap">{call.transcript}</p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+                      )}
+                    </div>
+                  )
+                })}
 
-              {/* Total savings summary */}
-              {confirmedCalls.length > 0 && (
-                <div className="bg-gradient-to-r from-emerald-500/10 to-emerald-600/5 rounded-xl border border-emerald-500/20 px-6 py-5 mt-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs text-emerald-500/60 font-bold uppercase tracking-wider">Session Summary</p>
-                      <p className="text-white font-bold mt-1">{confirmedCalls.length} deal{confirmedCalls.length !== 1 ? 's' : ''} confirmed</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-emerald-500/60 font-bold uppercase tracking-wider">Total Revenue</p>
-                      <p className="text-2xl font-black text-emerald-400">
-                        ${confirmedCalls.reduce((sum, c) => sum + Number(c.final_rate || c.offered_rate), 0).toLocaleString()}
-                      </p>
+                {/* Total revenue summary */}
+                {confirmedCalls.length > 0 && (
+                  <div className="bg-white rounded-lg border border-emerald-200 px-6 py-5 mt-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Session Summary</p>
+                        <p className="text-gray-900 font-semibold mt-1">
+                          {confirmedCalls.length} deal{confirmedCalls.length !== 1 ? 's' : ''} confirmed
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Total Revenue</p>
+                        <p className="text-2xl font-extrabold text-emerald-700">
+                          ${confirmedCalls.reduce((sum, c) => sum + Number(c.final_rate || c.offered_rate), 0).toLocaleString()}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </main>
     </div>
   )
 }
 
-function EmptyState({ title, subtitle, action }: { title: string; subtitle: string; action?: { label: string; href: string } }) {
+function EmptyState({
+  title,
+  subtitle,
+  action,
+}: {
+  title: string
+  subtitle: string
+  action?: { label: string; href: string }
+}) {
   return (
     <div className="text-center py-20">
-      <div className="h-16 w-16 rounded-2xl bg-[#111] border border-[#1a1a1a] flex items-center justify-center mx-auto mb-4">
-        <Zap className="h-7 w-7 text-[#333]" />
+      <div className="h-16 w-16 rounded-2xl bg-gray-50 border border-[#e5e7eb] flex items-center justify-center mx-auto mb-4">
+        <Zap className="h-7 w-7 text-gray-300" />
       </div>
-      <p className="text-sm font-semibold text-[#888]">{title}</p>
-      <p className="text-xs text-[#555] mt-1">{subtitle}</p>
+      <p className="text-sm font-semibold text-gray-600">{title}</p>
+      <p className="text-xs text-gray-400 mt-1 max-w-sm mx-auto">{subtitle}</p>
       {action && (
         <a
           href={action.href}
-          className="inline-flex items-center gap-1.5 mt-4 px-4 py-2 rounded-lg bg-emerald-500/10 text-emerald-400 text-xs font-bold hover:bg-emerald-500/20 transition-colors"
+          className="inline-flex items-center gap-1.5 mt-4 px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors"
         >
           <ExternalLink className="h-3 w-3" />
           {action.label}
