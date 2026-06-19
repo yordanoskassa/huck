@@ -1,33 +1,71 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { clsx } from 'clsx'
 import { Phone, Loader2, CheckCircle, XCircle, AlertTriangle } from 'lucide-react'
-import { STRATEGY_COLORS, STATUS_COLORS } from '@/lib/constants'
-import type { Driver, CallLog } from '@/lib/types'
+import type { Driver, CallLog, Load } from '@/lib/types'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Label } from '@/components/ui/label'
+import { StatusBadge, StrategyBadge } from '@/components/common/status-badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+
+type CallLogWithLoad = CallLog & { load?: Load }
+
+function OutcomeIcon({ outcome }: { outcome: string }) {
+  switch (outcome) {
+    case 'accepted':
+      return <CheckCircle className="size-4 text-success" />
+    case 'rejected':
+      return <XCircle className="size-4 text-destructive" />
+    case 'in_progress':
+      return <Loader2 className="size-4 animate-spin text-warning" />
+    case 'error':
+      return <AlertTriangle className="size-4 text-destructive" />
+    default:
+      return <Loader2 className="size-4 animate-spin text-muted-foreground" />
+  }
+}
 
 export default function DispatchPage() {
   const [drivers, setDrivers] = useState<Driver[]>([])
   const [selectedDriver, setSelectedDriver] = useState('')
   const [dispatching, setDispatching] = useState(false)
-  const [results, setResults] = useState<Array<{
-    load_id: string
-    driver_id: string
-    strategy: string
-    call_log_id: string
-    vapi_call_id?: string
-    error?: string
-  }>>([])
-  const [callLogs, setCallLogs] = useState<CallLog[]>([])
+  const [results, setResults] = useState<
+    Array<{
+      load_id: string
+      driver_id: string
+      strategy: string
+      call_log_id: string
+      vapi_call_id?: string
+      error?: string
+    }>
+  >([])
+  const [callLogs, setCallLogs] = useState<CallLogWithLoad[]>([])
 
   useEffect(() => {
-    fetch('/api/drivers').then((r) => r.json()).then(setDrivers)
+    let active = true
+    fetch('/api/drivers')
+      .then((r) => r.json())
+      .then((data) => {
+        if (active && Array.isArray(data)) setDrivers(data)
+      })
+    return () => {
+      active = false
+    }
   }, [])
 
   const pollCallLogs = useCallback(() => {
-    fetch('/api/call-logs').then((r) => r.json()).then((data) => {
-      if (Array.isArray(data)) setCallLogs(data)
-    })
+    fetch('/api/call-logs')
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) setCallLogs(data)
+      })
   }, [])
 
   useEffect(() => {
@@ -56,117 +94,116 @@ export default function DispatchPage() {
     }
   }
 
-  function outcomeIcon(outcome: string) {
-    switch (outcome) {
-      case 'accepted': return <CheckCircle className="h-4 w-4 text-green-400" />
-      case 'rejected': return <XCircle className="h-4 w-4 text-red-400" />
-      case 'in_progress': return <Loader2 className="h-4 w-4 text-yellow-400 animate-spin" />
-      case 'error': return <AlertTriangle className="h-4 w-4 text-red-400" />
-      default: return <Loader2 className="h-4 w-4 text-gray-400 animate-spin" />
-    }
-  }
-
   return (
-    <div>
-      <h2 className="text-xl font-semibold text-white mb-6">Dispatch Engine</h2>
+    <div className="space-y-6">
+      <h2 className="text-xl font-semibold text-foreground">Dispatch Engine</h2>
 
       {/* Controls */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-5 mb-6">
-        <div className="flex items-end gap-4">
-          <div className="flex-1 max-w-xs">
-            <label className="block text-sm font-medium text-gray-400 mb-1">Select Driver</label>
-            <select
+      <Card>
+        <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-end">
+          <div className="flex-1 sm:max-w-xs">
+            <Label htmlFor="driver-select" className="mb-1.5 text-muted-foreground">
+              Select Driver
+            </Label>
+            <Select
               value={selectedDriver}
-              onChange={(e) => setSelectedDriver(e.target.value)}
-              className="w-full rounded-lg border border-gray-800 bg-gray-900 px-4 py-2.5 text-white focus:border-blue-500 focus:outline-none"
+              onValueChange={(value) => setSelectedDriver((value as string) ?? '')}
             >
-              <option value="">All Available Drivers</option>
-              {drivers.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name} - {d.current_city}, {d.current_state} ({d.truck_type})
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id="driver-select" className="w-full">
+                <SelectValue placeholder="All Available Drivers" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">All Available Drivers</SelectItem>
+                {drivers.map((d) => (
+                  <SelectItem key={d.id} value={d.id}>
+                    {d.name} - {d.current_city}, {d.current_state} ({d.truck_type})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
-          <button
-            onClick={handleDispatch}
-            disabled={dispatching}
-            className="flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
-          >
+          <Button onClick={handleDispatch} disabled={dispatching}>
             {dispatching ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="size-4 animate-spin" />
             ) : (
-              <Phone className="h-4 w-4" />
+              <Phone className="size-4" />
             )}
             {dispatching ? 'Dispatching...' : 'Run Dispatch'}
-          </button>
-        </div>
-      </div>
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* Dispatch Results */}
       {results.length > 0 && (
-        <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-5 mb-6">
-          <h3 className="text-sm font-medium text-gray-400 mb-4">Dispatch Results</h3>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {results.map((r, i) => (
-              <div key={i} className="rounded-lg border border-gray-800 bg-gray-800/50 p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className={clsx('rounded-full border px-2.5 py-0.5 text-xs font-medium', STRATEGY_COLORS[r.strategy])}>
-                    {r.strategy}
-                  </span>
-                  {r.error ? (
-                    <span className="text-xs text-red-400">Error</span>
-                  ) : (
-                    <span className="text-xs text-green-400">Call initiated</span>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm text-muted-foreground">Dispatch Results</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {results.map((r) => (
+              <Card key={r.call_log_id} className="bg-muted/40">
+                <CardContent className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <StrategyBadge strategy={r.strategy} />
+                    {r.error ? (
+                      <span className="text-xs text-destructive">Error</span>
+                    ) : (
+                      <span className="text-xs text-success">Call initiated</span>
+                    )}
+                  </div>
+                  <p className="truncate text-xs text-muted-foreground">
+                    Load: {r.load_id.slice(0, 8)}...
+                  </p>
+                  {r.vapi_call_id && (
+                    <p className="truncate text-xs text-muted-foreground">
+                      Call: {r.vapi_call_id.slice(0, 8)}...
+                    </p>
                   )}
-                </div>
-                <p className="text-xs text-gray-500 truncate">Load: {r.load_id.slice(0, 8)}...</p>
-                {r.vapi_call_id && (
-                  <p className="text-xs text-gray-500 truncate">Call: {r.vapi_call_id.slice(0, 8)}...</p>
-                )}
-                {r.error && (
-                  <p className="text-xs text-red-400 mt-1">{r.error}</p>
-                )}
-              </div>
+                  {r.error && <p className="mt-1 text-xs text-destructive">{r.error}</p>}
+                </CardContent>
+              </Card>
             ))}
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Live Call Feed */}
       {callLogs.length > 0 && (
-        <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-5">
-          <h3 className="text-sm font-medium text-gray-400 mb-4">Call Feed (auto-refreshing)</h3>
-          <div className="space-y-3">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm text-muted-foreground">
+              Call Feed (auto-refreshing)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
             {callLogs.slice(0, 10).map((call) => (
-              <div key={call.id} className="flex items-center justify-between rounded-lg bg-gray-800/50 px-4 py-3">
+              <div
+                key={call.id}
+                className="flex items-center justify-between rounded-lg bg-muted/40 px-4 py-3"
+              >
                 <div className="flex items-center gap-3">
-                  {outcomeIcon(call.outcome)}
+                  <OutcomeIcon outcome={call.outcome} />
                   <div>
-                    <p className="text-sm font-medium text-white">
-                      {(call as CallLog & { load?: { origin_city: string; origin_state: string; dest_city: string; dest_state: string } }).load
-                        ? `${(call as CallLog & { load: { origin_city: string; origin_state: string; dest_city: string; dest_state: string } }).load.origin_city} → ${(call as CallLog & { load: { origin_city: string; origin_state: string; dest_city: string; dest_state: string } }).load.dest_city}`
+                    <p className="text-sm font-medium text-foreground">
+                      {call.load
+                        ? `${call.load.origin_city} → ${call.load.dest_city}`
                         : call.load_id.slice(0, 8)}
                     </p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-muted-foreground">
                       ${Number(call.offered_rate).toLocaleString()}
                       {call.final_rate && ` → $${Number(call.final_rate).toLocaleString()}`}
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className={clsx('rounded-full border px-2.5 py-0.5 text-xs font-medium', STRATEGY_COLORS[call.strategy])}>
-                    {call.strategy}
-                  </span>
-                  <span className={clsx('rounded-full px-2.5 py-0.5 text-xs font-medium', STATUS_COLORS[call.outcome])}>
-                    {call.outcome}
-                  </span>
+                  <StrategyBadge strategy={call.strategy} />
+                  <StatusBadge status={call.outcome} />
                 </div>
               </div>
             ))}
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   )
